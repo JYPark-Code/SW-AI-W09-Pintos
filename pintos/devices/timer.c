@@ -28,6 +28,8 @@ static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
+// wakeup 순으로 넣기 (최적화)
+static bool cmp_wakeup_tick (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
@@ -91,6 +93,10 @@ timer_elapsed (int64_t then) {
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
+
+	 if (ticks <= 0)
+        return;
+
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
@@ -99,7 +105,8 @@ timer_sleep (int64_t ticks) {
     t->wakeup_tick = start + ticks;
 
     enum intr_level old_level = intr_disable ();
-    list_push_back (&sleep_list, &t->elem);
+    // list_push_back (&sleep_list, &t->elem);
+	list_insert_ordered (&sleep_list, &t->elem, cmp_wakeup_tick, NULL);
     thread_block ();
     intr_set_level (old_level);
 }
@@ -206,4 +213,20 @@ real_time_sleep (int64_t num, int32_t denom) {
 		ASSERT (denom % 1000 == 0);
 		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 	}
+}
+
+/* sleep_list를 wakeup_tick 기준으로 정렬하기 위한 비교 함수.
+   두 스레드를 비교하여, a의 wakeup_tick이 b보다 작으면 true를 반환한다.
+   즉, 더 빨리 깨어나야 하는 스레드가 리스트 앞쪽에 오도록 한다. */
+static bool
+cmp_wakeup_tick (const struct list_elem *a,
+                 const struct list_elem *b,
+                 void *aux)
+{
+    (void) aux;
+
+    struct thread *ta = list_entry(a, struct thread, elem);
+    struct thread *tb = list_entry(b, struct thread, elem);
+
+    return ta->wakeup_tick < tb->wakeup_tick;
 }
