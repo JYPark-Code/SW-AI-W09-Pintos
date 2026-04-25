@@ -184,3 +184,82 @@ git push -u origin main
 - `git push`: 새로운 리포에 최초 업로드(Push)합니다.
 
 이 과정을 거치면 기존 리포와의 연결은 완전히 제거되고, **새로운 독립적인 프로젝트로 관리**할 수 있습니다.
+
+---
+
+## 9. 테스트 최적화 도구 (select_test.sh) 사용법
+
+`pintos-util-main` 기반의 테스트 선택 실행기입니다. 원하는 테스트만 골라 돌리고, PASS/FAIL 결과를 캐싱하여 메뉴에 색으로 표시합니다.
+
+### 📂 설치 위치
+
+| 파일 | 위치 |
+|------|------|
+| `launch.json` | `.vscode/launch.json` (워크스페이스 루트) |
+| `select_test.sh`, `.test_config` | `pintos/threads/`, `pintos/userprog/`, `pintos/vm/` 각 프로젝트 폴더 |
+
+> Threads 프로젝트는 이미 설치되어 있습니다. UserProgram/VM은 진입 시 아래 "다른 프로젝트 진입 시 설치"를 참고하세요.
+
+### 🚀 기본 명령어 (Threads 기준)
+
+```bash
+cd pintos/threads
+
+# 1) 테스트 결과만 확인 (배치 실행, GDB 미사용)
+./select_test.sh -q
+
+# 2) 코드를 수정한 뒤 재빌드 + 실행
+./select_test.sh -q -r
+
+# 3) VSCode + GDB 디버깅 모드 (중단점 사용)
+./select_test.sh -g -r
+
+# 4) 통과/실패 캐시(색상 표시) 초기화
+rm .test_status
+```
+
+- `-q` : quick, 배치 모드 (디버거 미사용)
+- `-g` : gdb stub 모드, VSCode "Pintos Debug" 디버그를 함께 시작
+- `-r` : rebuild, `make clean && make all -j$(nproc)`로 재빌드 후 실행
+
+### 🖱️ 테스트 선택 방법
+
+스크립트 실행 후 메뉴가 뜨면 번호를 공백/하이픈으로 입력합니다.
+
+```
+Enter test numbers (e.g. '1 3 5' or '2-4'): 1-5 9 11-13
+```
+
+→ {1, 2, 3, 4, 5, 9, 11, 12, 13}번 테스트가 순차 실행됩니다.
+
+- 🟢 초록 = 이전에 PASS / 🔴 빨강 = 이전에 FAIL / 흰색 = 미실행
+- 결과는 `.test_status`에 자동 저장
+
+### 🐞 GDB 디버깅 흐름 (`-g`)
+
+1. C 코드에 중단점(F9) 설정
+2. `./select_test.sh -g -r` 실행 → 테스트 번호 입력
+3. QEMU가 `localhost:1234`에서 대기하면 VSCode 좌측 디버그 패널에서 해당 주차 디버그 구성 선택 후 ▶ 실행
+   - `[Week 9] Threads Debug`
+   - `[Week 10-11] User Program Debug`
+   - `[Week 12-13] VM Debug`
+4. 여러 테스트를 연속 디버그하면 다음 테스트 시작 시 디버그 ▶ 버튼을 다시 눌러줍니다.
+
+### 🛠️ 다른 프로젝트 진입 시 설치 (UserProgram/VM)
+
+```bash
+# 예: UserProgram 진입 시
+cd pintos/userprog
+cp ../../pintos-util-main/userprog/select_test.sh .
+chmod +x select_test.sh
+
+# .test_config 자동 생성 (userprog/vm 한정 — generate_test_config.py가 정상 동작)
+source ../activate
+make -k check > /tmp/userprog-make-check.txt 2>&1
+python3 ../../pintos-util-main/generate_test_config.py \
+    < /tmp/userprog-make-check.txt > .test_config
+```
+
+VM도 동일하게 `pintos/vm/`에서 같은 절차로 설치합니다.
+
+> Threads는 `make check` 출력 포맷이 달라 `.test_config`를 손으로 작성해두었으니 위 자동 생성 단계는 불필요합니다.
