@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <list.h> 
 #include "threads/interrupt.h"
 #include "threads/io.h"
 #include "threads/synch.h"
@@ -19,6 +20,8 @@
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
+
+static struct list sleep_list; // 웨이크업 틱 오름차순 리스트
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
