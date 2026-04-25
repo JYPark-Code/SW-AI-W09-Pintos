@@ -31,12 +31,16 @@ static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
+static bool wakeup_less(const struct list_elem *a,
+												const struct list_elem *b,
+												void *aux UNUSED);
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
 void
 timer_init (void) {
+	list_init (&sleep_list);
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
 	   nearest. */
 	uint16_t count = (1193180 + TIMER_FREQ / 2) / TIMER_FREQ;
@@ -90,15 +94,32 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
+void timer_sleep (int64_t ticks){
+	enum intr_level old_level;
+	struct thread *cur;
+
+	if (ticks <= 0) // 잘시간 없으면 안잔다.
+		return;
+
+	ASSERT (intr_get_level() == INTR_ON);
+
+	old_level = intr_disable(); // 슬립리스트 조작중 interrupt가 끼지 못하게 하기
+	cur = thread_current(); // 지금 실행 중인 스레드 잡기
+	cur->wakeup_tick = timer_ticks() + ticks; //언제 깨어날지 저장
+	list_insert_ordered (&sleep_list, &cur->elem, wakeup_less, NULL); // 오름차순으로 넣는다
+	thread_block(); // 블록을 놓고 스케쥴러로 넘긴다.
+	intr_set_level(old_level); // 나중에 깨어난 뒤 interrut 상태를 원래대로 복구
+}
+
 /* Suspends execution for approximately TICKS timer ticks. */
-void
+/*void <- 원래 있던 타이머 슬립 [비지 웨이팅 방식] 
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
 	while (timer_elapsed (start) < ticks)
 		thread_yield ();
-}
+}*/
 
 /* Suspends execution for approximately MS milliseconds. */
 void
@@ -161,6 +182,17 @@ busy_wait (int64_t loops) {
 	while (loops-- > 0)
 		barrier ();
 }
+
+static bool
+wakeup_less	(const struct list_elem *a,
+						 const struct list_elem *b,
+						 void *aux UNUSED) {
+	const struct thread *ta = list_entry (a, struct thread, elem);
+	const struct thread *tb = list_entry (b, struct thread, elem);
+
+	return ta->wakeup_tick < tb->wakeup_tick;
+}
+
 
 /* Sleep for approximately NUM/DENOM seconds. */
 static void
