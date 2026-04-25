@@ -132,6 +132,12 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
+	/* code to add: 
+	   check sleep list and the global tick.
+	   find any threads to wake up,
+	   move them to the ready list if necessary.
+	   update the global tick.	
+	*/
 	struct list_elem *e = list_begin (&sleep_list);
 	while (e != list_end (&sleep_list)) {
 		struct thread *t = list_entry (e, struct thread, elem);
