@@ -121,6 +121,9 @@ int main(void)
 	console_init();
 
 	/* Initialize memory system. */
+	/**
+	 * 메모리 할당을 초기화하고 마지막 메모리 주소값을 반환
+	 */
 	mem_end = palloc_init();
 	malloc_init();
 	paging_init(mem_end);
