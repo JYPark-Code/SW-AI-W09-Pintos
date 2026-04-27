@@ -64,7 +64,7 @@ static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
 // 우선순위 비교
-static bool cmp_priority (const struct list_elem *, const struct list_elem *, void *);
+bool cmp_priority (const struct list_elem *, const struct list_elem *, void *);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -325,7 +325,22 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+
+
+    /* 1. 현재 스레드의 우선순위를 new_priority로 변경 */
+    thread_current()->priority = new_priority;
+
+    /* 2. ready_list가 비어있지 않고
+          최고 우선순위 thread가 현재보다 높으면 즉시 CPU 양보 */
+    if (!list_empty(&ready_list)) {
+        struct thread *highest = list_entry(
+            list_max(&ready_list, cmp_priority, NULL),
+            struct thread, elem);
+
+        /* 3. 현재 thread보다 높은 우선순위가 있으면 yield */
+        if (highest->priority > thread_current()->priority)
+            thread_yield();
+    }
 }
 
 /* Returns the current thread's priority. */
@@ -606,8 +621,7 @@ allocate_tid (void) {
 /* ready_list를 우선순위(priority) 기준으로 정렬하기 위한 비교 함수.
    두 스레드를 비교하여, a의 우선순위가 b보다 높으면 true를 반환한다.
    즉, 우선순위가 높은 스레드가 리스트 앞쪽에 오도록 한다. (내림차순)*/
-static bool
-cmp_priority (const struct list_elem *a,
+bool cmp_priority (const struct list_elem *a,
               const struct list_elem *b,
               void *aux)
 {
