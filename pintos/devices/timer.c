@@ -249,7 +249,7 @@ real_time_sleep (int64_t num, int32_t denom) {
 
 /* sleep_list를 wakeup_tick 기준으로 정렬하기 위한 비교 함수.
    두 스레드를 비교하여, a의 wakeup_tick이 b보다 작으면 true를 반환한다.
-   즉, 더 빨리 깨어나야 하는 스레드가 리스트 앞쪽에 오도록 한다. */
+   즉, 더 빨리 깨어나야 하는 스레드가 리스트 앞쪽에 오도록 한다. (오름차순)*/
 static bool
 cmp_wakeup_tick (const struct list_elem *a,
                  const struct list_elem *b,
