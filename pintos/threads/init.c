@@ -122,10 +122,22 @@ int main(void)
 
 	/* Initialize memory system. */
 	/**
-	 * 메모리 할당을 초기화하고 마지막 메모리 주소값을 반환
+	 * 1. resolve_area_info
+	 * base mem (1MB 미만) ext mem (1MB 이상) 메모리 영역을 나눠
+	 * 2. populate_pools
+	 * base mem과 ext mem 둘 다 더해 전체 사이즈에서 커널 풀과 유저 풀을 2등분 하고
+	 * 페이징 처리 + 비트맵 작업
 	 */
 	mem_end = palloc_init();
+	/**
+	 * 블록 크기들 16 32 64 ... 를 나눠
+	 * malloc(20) 같은 요청이 오면 가장 가까운 크기 클래스에서 하나를 주는 식으로 처리하기 위해 나누는 작업
+	 */
 	malloc_init();
+
+	/**
+	 * 페이지 테이블을 만들고, 커널 가상주소가 물리메모리를 어떻게 매핑할지 설정한 뒤, CPU가 그 페이징 설정을 실제로 쓰게 만드는 초기화
+	 */
 	paging_init(mem_end);
 
 #ifdef USERPROG
@@ -134,17 +146,61 @@ int main(void)
 #endif
 
 	/* Initialize interrupt handlers. */
+	/**
+	 * CPU가 인터럽트/예외가 발생했을 때 어디로 들어가야 하는지 IDT를 만들고, PIC를 그 규칙에 맞게 재설정하는 함수
+	 */
 	intr_init();
+	/**
+	 * 타이머를 설정하고
+	 * 외부 하드웨어 인터럽트 0x20이 들어오면 timer_interrupt()를 발생
+	 */
 	timer_init();
+	/**
+	 * 외부 하드웨어 인터럽트 0x21이 들어오면 keyboard_interrupt()를 발생
+	 */
 	kbd_init();
+	/**
+	 * 키보드/시리얼 입력을 담아둘 공용 입력 버퍼를 초기화하는 함수
+	 * 실제로는 intq_init(&buffer) 한 줄만 호출하고, 이 buffer는 input.c의 struct intq
+	 */
 	input_init();
 #ifdef USERPROG
 	exception_init();
 	syscall_init();
 #endif
 	/* Start thread scheduler and enable interrupts. */
+	/**
+	 * idle_thread를 만드는 것 뿐
+	 */
 	thread_start();
+	/**
+	 * 시리얼 포트(COM1, UART)에서 입출력 이벤트가 생겼을 때 오는 하드웨어 인터럽트
+	 * - 시리얼로 들어온 입력이 있으면 RBR_REG에서 읽어 input_putc()로 input buffer에 넣음
+	 * - 출력할 문자가 대기 중이면 txq에서 꺼내 THR_REG로 내보냄
+	 * 모르겠다..
+	 * 시리얼 콘솔을 본격적으로 인터럽트 기반으로 쓰기 시작하는 초기화, Pintos가 출력/테스트에서 시리얼을
+	 * 많이 쓰기 때문에 기본적으로 꼭 켜두는 것
+	 * 즉, IRQ4 -> 벡터 0x24에 등록 후 busy waiting 대시 큐 기반 인터럽트 방식으로 바꾸는 것
+	 */
 	serial_init_queue();
+	/**
+	 * CPU가 1 tick 동안 대략 몇 번의 빈 루프를 돌 수 있는지를 측정해서
+	 * loops_per_ticks 를 구하는 함수
+	 * 1tick당 대략 10ms인데, 내 머신에서 10ms보다 살짝 덜 걸리는 busy-wait 루프 횟수를
+	 * 부팅 시 한 번 보정하는 것
+	 *
+	 * timer_sleep() 처럼 1 tick이상 기다릴 때는 스레드를 block 시키면 되지만,
+	 * 1 tick보다 짧은 아주 짧은 지연은 그렇게 못 맞춘다.
+	 * 그래서 read_time_sleep()은
+	 * 충분히 길면 timer_sleep() 사용
+	 * 너무 짧으면 busy_wait() 사용
+	 *
+	 * 이때 busy_wait()에 몇 번 루프를 줘야 하는지 기준이 바로 loops_per_tick
+	 * 실제로 timer.c에서 그 값을 써서 timer_msleep, timer_usleep, timer_nsleep의 짧은 지연을 구함
+	 * 1. 먼저 2의 거듭제곱으로 대충 큰 값을 찾음
+	 * too_many_loops()로 이 루프 수가 1 tick을 넘는가?를 검사함
+	 * 그 다음 상위 비트 아래 몇 비트를 더 켜 보면서 값을 조금 더 정밀하게 맞춤
+	 */
 	timer_calibrate();
 
 #ifdef FILESYS
@@ -190,6 +246,16 @@ paging_init(uint64_t mem_end)
 {
 	uint64_t *pml4, *pte;
 	int perm;
+	/**
+	 * pml4는 페이지 테이블의 가장 앞부분을 설정하는 것
+	 * 이 때 0으로 다 초기화 하는 이유는 보안적인 문제
+	 * 다른 프로세스가 사용 후 free를 한 곳이기 때문에 이전 데이터가 남아있을 수 있음
+	 * 그 데이터를 초기화 하기 위해
+	 * pml4 : 새로 쓸 최상위 페이지 테이블 한 페이지를 받음
+	 * base_pml4 : 그 주소를 전역으로도 저장
+	 * PAL_ZERO : 그 4KB 페이지를 전부 0으로 채움
+	 * PAL_ASSERT : 할당 실패하면 그냥 NULL 반환하지 말고 커널을 panic 시킴
+	 */
 	pml4 = base_pml4 = palloc_get_page(PAL_ASSERT | PAL_ZERO);
 
 	extern char start, _end_kernel_text;
@@ -199,11 +265,31 @@ paging_init(uint64_t mem_end)
 	{
 		uint64_t va = (uint64_t)ptov(pa);
 
+		/**
+		 * 페이지 테이블 엔트리의 권한 비트 2개를 켠다는 뜻
+		 * 0x1 : present
+		 * 0x2 : read/write
+		 */
 		perm = PTE_P | PTE_W;
 		if ((uint64_t)&start <= va && va < (uint64_t)&_end_kernel_text)
 			perm &= ~PTE_W;
-
+		/**
+		 * pml4 (Page Map Level 4) : x86-64에서 쓰는 최상위 페이지 테이블
+		 * 즉, 운영체제가 가상주소를 물리주소로 바꿀 때, 제일 먼저 보는 1단계 테이블
+		 *
+		 * [ PML4 index ][ PDPT index ][ PD index ][ PT index ][ offset ]
+		 * 즉, 주소 변환 순서
+		 * 1. PML4
+		 * 2. PDPT
+		 * 3. PD
+		 * 4. PT
+		 * 5. 실제 물리 페이지
+		 *
+		 * pml4e_walk : PML4 엔트리를 따라 내려가면서 필요한 하위 테이블을 찾거나 생성
+		 */
 		if ((pte = pml4e_walk(pml4, va, 1)) != NULL)
+			// pa : 상위 비트 : 물리 페이지 주소 pa
+			// perm : 하위 비트 : 권한 플래그 perm
 			*pte = pa | perm;
 	}
 

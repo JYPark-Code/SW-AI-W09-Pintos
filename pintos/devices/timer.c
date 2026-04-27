@@ -43,7 +43,7 @@ wakeup_less(const struct list_elem *a,
 	const struct thread *ta = list_entry(a, struct thread, elem);
 	const struct thread *tb = list_entry(b, struct thread, elem);
 
-	return ta->wakeup_tick < tb->wakeup_tick;
+	return ta->wakeup_tick < tb->wakeup_tick || ta->priority > tb->priority;
 }
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
@@ -53,14 +53,33 @@ void timer_init(void)
 {
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
 	   nearest. */
+	/**
+	 * count = 1193180 / TIMER_FREQ가 원래 의미
+	 * 1193180은 8254 타이머 입력 클럭, TIMER_FREQ는 우리가 원하는 인터럽트 빈도
+	 *
+	 * TIMER_FREQ는 우리가 원하는 인터럽트 빈도
+	 * TIMER / 2 는 반올림 (+50)
+	 */
 	uint16_t count = (1193180 + TIMER_FREQ / 2) / TIMER_FREQ;
 
 	list_init(&sleep_list);
-
+	/**
+	 * CPU 레지스터를 직접 바꾸는 함수라기보다 x86의 OUT 명령으로 I/O 포트에 1byte를 쓰는 함수.
+	 */
 	outb(0x43, 0x34); /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb(0x40, count & 0xff);
 	outb(0x40, count >> 8);
 
+	/**
+	 * 외부 하드웨어 인터럽트 벡터 0x20이 들어오면 timer_interrupt()를 실행해라
+	 * 타이머는 원래 IRQ 0이라 최종적으로 벡터 0x20에 매핑됨
+	 * 그래서 timer.c에서 이 등록을 해두면, PIT가 틱을 발생시킬 때마다 CPU가 0x20 인터럽트를 받고
+	 * Pintos가 timer_interrupt()를 실행하게 됨
+	 *
+	 * intr_register_ext()느 외부 인터럽트용이라 interrupt.c에서 0x20~0x2f만 허용하고, 핸들러는 인터럽트가
+	 * 꺼진 상태에서 실행되게 등록
+	 * 그래서 타이머 핸들러 안에서는 잠들거나 블록되는 동작을 하면 안됨
+	 */
 	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -163,6 +182,7 @@ void timer_sleep(int64_t ticks)
 	curr = thread_current();
 
 	curr->wakeup_tick = timer_ticks() + ticks;
+	// curr->priority
 	list_insert_ordered(&sleep_list, &curr->elem, wakeup_less, NULL);
 	thread_block();
 

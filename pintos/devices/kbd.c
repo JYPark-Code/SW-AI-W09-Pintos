@@ -12,9 +12,9 @@
 
 /* Current state of shift keys.
    True if depressed, false otherwise. */
-static bool left_shift, right_shift;    /* Left and right Shift keys. */
-static bool left_alt, right_alt;        /* Left and right Alt keys. */
-static bool left_ctrl, right_ctrl;      /* Left and right Ctl keys. */
+static bool left_shift, right_shift; /* Left and right Shift keys. */
+static bool left_alt, right_alt;	 /* Left and right Alt keys. */
+static bool left_ctrl, right_ctrl;	 /* Left and right Ctl keys. */
 
 /* Status of Caps Lock.
    True when on, false when off. */
@@ -26,23 +26,24 @@ static int64_t key_cnt;
 static intr_handler_func keyboard_interrupt;
 
 /* Initializes the keyboard. */
-void
-kbd_init (void) {
-	intr_register_ext (0x21, keyboard_interrupt, "8042 Keyboard");
+void kbd_init(void)
+{
+	intr_register_ext(0x21, keyboard_interrupt, "8042 Keyboard");
 }
 
 /* Prints keyboard statistics. */
-void
-kbd_print_stats (void) {
-	printf ("Keyboard: %lld keys pressed\n", key_cnt);
+void kbd_print_stats(void)
+{
+	printf("Keyboard: %lld keys pressed\n", key_cnt);
 }
-
+
 /* Maps a set of contiguous scancodes into characters. */
-struct keymap {
-	uint8_t first_scancode;     /* First scancode. */
-	const char *chars;          /* chars[0] has scancode first_scancode,
-								   chars[1] has scancode first_scancode + 1,
-								   and so on to the end of the string. */
+struct keymap
+{
+	uint8_t first_scancode; /* First scancode. */
+	const char *chars;		/* chars[0] has scancode first_scancode,
+							   chars[1] has scancode first_scancode + 1,
+							   and so on to the end of the string. */
 };
 
 /* Keys that produce the same characters regardless of whether
@@ -82,10 +83,20 @@ static const struct keymap shifted_keymap[] = {
 	{0, NULL},
 };
 
-static bool map_key (const struct keymap[], unsigned scancode, uint8_t *);
+static bool map_key(const struct keymap[], unsigned scancode, uint8_t *);
 
+/**
+ * 1. 사용자가 QEMU 창에서 키를 누르거나 뗀다.
+ * 2. 키보드 컨트롤러가 스캔코드를 만든다.
+ * 3. IRQ 1 이 발생하고, PIC remap 때문에 벡터 0x21로 들어감
+ * 4. keyboard_interrupt() 가 실행
+ * 5. 이 함수가 inb(0x60)으로 스캔코드를 읽고, Shift/Ctrl/Cap Lock
+ * 상태를 반영해서 문자로 해석
+ * 6. 최종 문자를 input_putc()로 input_buffer에 넣는다.
+ */
 static void
-keyboard_interrupt (struct intr_frame *args UNUSED) {
+keyboard_interrupt(struct intr_frame *args UNUSED)
+{
 	/* Status of shift keys. */
 	bool shift = left_shift || right_shift;
 	bool alt = left_alt || right_alt;
@@ -101,9 +112,9 @@ keyboard_interrupt (struct intr_frame *args UNUSED) {
 	uint8_t c;
 
 	/* Read scancode, including second byte if prefix code. */
-	code = inb (DATA_REG);
+	code = inb(DATA_REG);
 	if (code == 0xe0)
-		code = (code << 8) | inb (DATA_REG);
+		code = (code << 8) | inb(DATA_REG);
 
 	/* Bit 0x80 distinguishes key press from key release
 	   (even if there's a prefix). */
@@ -111,22 +122,26 @@ keyboard_interrupt (struct intr_frame *args UNUSED) {
 	code &= ~0x80u;
 
 	/* Interpret key. */
-	if (code == 0x3a) {
+	if (code == 0x3a)
+	{
 		/* Caps Lock. */
 		if (!release)
 			caps_lock = !caps_lock;
-	} else if (map_key (invariant_keymap, code, &c)
-			|| (!shift && map_key (unshifted_keymap, code, &c))
-			|| (shift && map_key (shifted_keymap, code, &c))) {
+	}
+	else if (map_key(invariant_keymap, code, &c) || (!shift && map_key(unshifted_keymap, code, &c)) || (shift && map_key(shifted_keymap, code, &c)))
+	{
 		/* Ordinary character. */
-		if (!release) {
+		if (!release)
+		{
 			/* Handle Ctrl, Shift.
 			   Note that Ctrl overrides Shift. */
-			if (ctrl && c >= 0x40 && c < 0x60) {
+			if (ctrl && c >= 0x40 && c < 0x60)
+			{
 				/* A is 0x41, Ctrl+A is 0x01, etc. */
 				c -= 0x40;
-			} else if (shift == caps_lock)
-				c = tolower (c);
+			}
+			else if (shift == caps_lock)
+				c = tolower(c);
 
 			/* Handle Alt by setting the high bit.
 			   This 0x80 is unrelated to the one used to
@@ -135,34 +150,39 @@ keyboard_interrupt (struct intr_frame *args UNUSED) {
 				c += 0x80;
 
 			/* Append to keyboard buffer. */
-			if (!input_full ()) {
+			if (!input_full())
+			{
 				key_cnt++;
-				input_putc (c);
+				input_putc(c);
 			}
 		}
-	} else {
+	}
+	else
+	{
 		/* Maps a keycode into a shift state variable. */
-		struct shift_key {
+		struct shift_key
+		{
 			unsigned scancode;
 			bool *state_var;
 		};
 
 		/* Table of shift keys. */
 		static const struct shift_key shift_keys[] = {
-			{  0x2a, &left_shift},
-			{  0x36, &right_shift},
-			{  0x38, &left_alt},
+			{0x2a, &left_shift},
+			{0x36, &right_shift},
+			{0x38, &left_alt},
 			{0xe038, &right_alt},
-			{  0x1d, &left_ctrl},
+			{0x1d, &left_ctrl},
 			{0xe01d, &right_ctrl},
-			{0,      NULL},
+			{0, NULL},
 		};
 
 		const struct shift_key *key;
 
 		/* Scan the table. */
 		for (key = shift_keys; key->scancode != 0; key++)
-			if (key->scancode == code) {
+			if (key->scancode == code)
+			{
 				*key->state_var = !release;
 				break;
 			}
@@ -174,10 +194,11 @@ keyboard_interrupt (struct intr_frame *args UNUSED) {
    true.
    If not found, returns false and C is ignored. */
 static bool
-map_key (const struct keymap k[], unsigned scancode, uint8_t *c) {
+map_key(const struct keymap k[], unsigned scancode, uint8_t *c)
+{
 	for (; k->first_scancode != 0; k++)
-		if (scancode >= k->first_scancode
-				&& scancode < k->first_scancode + strlen (k->chars)) {
+		if (scancode >= k->first_scancode && scancode < k->first_scancode + strlen(k->chars))
+		{
 			*c = k->chars[scancode - k->first_scancode];
 			return true;
 		}

@@ -14,28 +14,32 @@
 
 static thread_func simple_thread_func;
 
-void
-test_priority_preempt (void) 
+/**
+ * 이건 전혀 감이 안잡힌다.
+ * 일단 즉시 선점을 하냐를 봐야하는데 무슨 코드를 고쳐야 하는지는 일단
+ * main 다 분석 후에 확인하자
+ */
+void test_priority_preempt(void)
 {
   /* This test does not work with the MLFQS. */
-  ASSERT (!thread_mlfqs);
+  ASSERT(!thread_mlfqs);
 
   /* Make sure our priority is the default. */
-  ASSERT (thread_get_priority () == PRI_DEFAULT);
+  ASSERT(thread_get_priority() == PRI_DEFAULT);
 
-  thread_create ("high-priority", PRI_DEFAULT + 1, simple_thread_func, NULL);
-  msg ("The high-priority thread should have already completed.");
+  thread_create("high-priority", PRI_DEFAULT + 1, simple_thread_func, NULL);
+  msg("The high-priority thread should have already completed.");
 }
 
-static void 
-simple_thread_func (void *aux UNUSED) 
+static void
+simple_thread_func(void *aux UNUSED)
 {
   int i;
-  
-  for (i = 0; i < 5; i++) 
-    {
-      msg ("Thread %s iteration %d", thread_name (), i);
-      thread_yield ();
-    }
-  msg ("Thread %s done!", thread_name ());
+
+  for (i = 0; i < 5; i++)
+  {
+    msg("Thread %s iteration %d", thread_name(), i);
+    thread_yield();
+  }
+  msg("Thread %s done!", thread_name());
 }

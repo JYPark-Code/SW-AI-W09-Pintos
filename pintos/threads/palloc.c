@@ -204,12 +204,30 @@ populate_pools(struct area *base_mem, struct area *ext_mem)
 	 * 따라서 pool을 나눠
 	 * PAL_USER 요청은 user pool에만 할당
 	 * 그 외 커널 요청은 kernel pool에서만 할당
+	 *
+	 * kernel pool
+	 * - 커널 스택
+	 * - 커널 자료구조
+	 * - 페이지 테이블
+	 * - 각종 내부 관리용 메모리
+	 *
+	 * user pool
+	 * - 사용자 프로세스의 페이지
+	 * - 유저 가상 메모리 backing page
+	 *
+	 * 즉, 커널 페이지와 유저 페이지를 나누는 이유는 유저 메모리 사용량이 커널이 살아남는 데 필요한 메모리를 잠식하지 못하게 하기 위해서
 	 */
 	uint64_t total_pages = (base_mem->size + ext_mem->size) / PGSIZE;
 	uint64_t user_pages = total_pages / 2 > user_page_limit ? user_page_limit : total_pages / 2;
 	uint64_t kern_pages = total_pages - user_pages;
 
 	// Parse E820 map to claim the memory region for each pool.
+	/**
+	 * KERN_STRAT : 커널 풀 시작 점을 아직 못 잡았는지
+	 * KERN : 커널 풀을 채우는 중인지
+	 * USER_START : 유저 풀 시작 점을 아직 못 잡았는지
+	 * USER : 유저 풀을 아직 채우는 중인지
+	 */
 	enum
 	{
 		KERN_START,
@@ -223,6 +241,25 @@ populate_pools(struct area *base_mem, struct area *ext_mem)
 	struct multiboot_info *mb_info = ptov(MULTIBOOT_INFO);
 	struct e820_entry *entries = ptov(mb_info->mmap_base);
 
+	/**
+	 * KERN_START
+	 * - 아직 kernel pool의 시작 주소를 못 정한 상태
+	 * - 첫 usable entry를 만나면 그 start를 region_start로 잡고 KERN으로 넘어감
+	 *
+	 * KERN
+	 * - 현재 usable entry들을 커널 풀에 배정
+	 * - rem : 아직 kernel pool에 더 넣어야 하는 페이지 수
+	 * - 현재 엔트리 전체를 다 kernel에 줄 수 있으면 rem만 줄이고 계속 감
+	 * - 현재 엔트리 중간에서 kernel pool이 딱 끝나면, 그 지점에서 init_pool(&kernel_pool) 하고 user로 넘어감
+	 *
+	 * USER_START
+	 * - kernel pool이 끝났지만, 유저 풀의 시작 주소를 아직 못 잡은 상태
+	 * - 이 상태가 필요한 경우는 kernel pool이 이전 엔트리 끝에서 정확히 끝난 경우
+	 *
+	 * - USER
+	 * - usable entry들을 유저 풀에 배정하는 중
+	 * - kernel 때와 같은 방식으로 남은 user 페이지를 소진해 감
+	 */
 	uint32_t i;
 	for (i = 0; i < mb_info->mmap_len / sizeof(struct e820_entry); i++)
 	{
@@ -321,6 +358,20 @@ populate_pools(struct area *base_mem, struct area *ext_mem)
 			if ((uint64_t)pool_end < end)
 			{
 				page_cnt = ((uint64_t)pool_end - start) / PGSIZE;
+				/**
+				 * 비트맵 : 자원 하나당 1비트로 상태를 기록하는 표
+				 * OS에서의 자원 : 페이지
+				 * page allocator는 페이지 하나당 비트 1개씩 대응시켜서 관리
+				 * bitmap : 1 1 0 0 1 0
+				 * page   : 0 1 2 3 4 5
+				 * 즉, true(1) false(0) -> 사용중이거나 비어있거나를 관리
+				 *
+				 * 즉 이것은 이 비트맵을 만들어서 만들어진 페이지 마다 비트맵으로 관리하는 것
+				 *
+				 * 실제 물리 메모리
+				 * usable 영역 | reserved 영역 | ACPI 영역 | 커널이 이미 쓰는 영역 | bitmap 자체가 차지한 영역
+				 * 그래서 안전하게 시작하기 위해 전부 막아두고 나중에 진짜 써도 되는 영역만 골라 그 부분만 free로 풀어주는 방식
+				 */
 				bitmap_set_multiple(pool->used_map, page_idx, page_cnt, false);
 				start = (uint64_t)pool_end;
 				goto split;
@@ -355,15 +406,15 @@ palloc_init(void)
 	struct area base_mem = {.size = 0};
 	struct area ext_mem = {.size = 0};
 
-	/**
-	 *
-	 */
 	resolve_area_info(&base_mem, &ext_mem);
 	printf("Pintos booting with: \n");
 	printf("\tbase_mem: 0x%llx ~ 0x%llx (Usable: %'llu kB)\n",
 		   base_mem.start, base_mem.end, base_mem.size / 1024);
 	printf("\text_mem: 0x%llx ~ 0x%llx (Usable: %'llu kB)\n",
 		   ext_mem.start, ext_mem.end, ext_mem.size / 1024);
+	/**
+	 * E820의 여러 usable 메모리 구간을 순회하면서 kernel pool과 user pool의 시작점/끝점을 정확히 잘라내기 위한 상태 머신
+	 */
 	populate_pools(&base_mem, &ext_mem);
 	return ext_mem.end;
 }

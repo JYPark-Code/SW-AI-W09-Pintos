@@ -28,6 +28,10 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+static bool wakeup_priority(const struct list_elem *a,
+							const struct list_elem *b,
+							void *aux UNUSED);
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -77,6 +81,17 @@ static tid_t allocate_tid(void);
 // Because the gdt will be setup after the thread_init, we should
 // setup temporal gdt first.
 static uint64_t gdt[3] = {0, 0x00af9a000000ffff, 0x00cf92000000ffff};
+
+static bool
+wakeup_priority(const struct list_elem *a,
+				const struct list_elem *b,
+				void *aux UNUSED)
+{
+	const struct thread *ta = list_entry(a, struct thread, elem);
+	const struct thread *tb = list_entry(b, struct thread, elem);
+
+	return ta->priority >= tb->priority;
+}
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -189,6 +204,12 @@ void thread_init(void)
 
 /* Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
+/**
+ * idle thread는 지금 당장 실행할 스레드가 하나도 없을 때 CPU를 맡아주는 특수 스레드
+ * ready queue가 비어있을 때를 위한 안전한 기본 대상이 하나 필요
+ * 그래서 thread_start()가 미리 idle thread를 만들고, next_thread_to_run()을 호출해
+ * idle_thread를 반환
+ */
 void thread_start(void)
 {
 	/* Create the idle thread. */
@@ -406,9 +427,36 @@ void thread_yield(void)
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
+/**
+ * 여기에 메인 스레드는 priority 31인데,
+ * priority-change
+ * - main thread -> 32로 우선순위가 할당되어서 생성되고
+ * - thread_set_priority에서 우선순위를 변경하기 전에 한번 실행되고 우선순위 변경
+ * - 그런데 실행되기 전에는 우선순위 확인해서 메인스레드보다 커야 함 (그래야 가능)
+ * priority-fifo
+ * - 우선순위가 같을 경우, 먼저 들어간 애들이 먼저 나올 수 있도록 설계
+ * priority-preempt
+ * - 우선순위를 선점하는 로직
+ */
 void thread_set_priority(int new_priority)
 {
-	thread_current()->priority = new_priority;
+	enum intr_level old_level;
+	struct thread *curr;
+
+	ASSERT(intr_get_level() == INTR_ON);
+
+	old_level = intr_disable();
+	curr = thread_current();
+	struct thread *main = list_pop_back(&ready_list);
+	if (main->priority > curr->priority)
+	{
+		thread_yield();
+	}
+	curr->priority = new_priority;
+	// list_insert_ordered(&ready_list, &curr->elem, wakeup_priority, NULL);
+	// thread_block();
+
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's priority. */
