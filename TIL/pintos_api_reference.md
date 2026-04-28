@@ -442,7 +442,145 @@ void timer_sleep (int64_t ticks) {
 
 ---
 
-## 6. 자주 쓰는 패턴 모음
+## 6. Priority Donation 관련 자료구조 / 헬퍼
+
+`priority_scheduling`의 다음 단계인 **priority donation**은 lock 보유자가
+대기자보다 낮은 우선순위일 때 일시적으로 우선순위를 끌어올려 **priority
+inversion**을 막는 기법이다. 여기서 다루는 건 Pintos가 기본 제공하는
+API가 아니라 **우리가 직접 만져야 할 자료구조와 작성해야 할 헬퍼**들이다.
+
+### 6.1 `struct thread` 추가 필드 (`include/threads/thread.h`)
+
+```c
+int             priority;           /* 현재 우선순위 (= effective priority) */
+int             original_priority;  /* donation 받기 전 원래 우선순위 */
+struct lock    *wait_on_lock;       /* 지금 기다리고 있는 lock, 없으면 NULL */
+struct list     donations;          /* 나에게 donation 한 thread들의 리스트 */
+struct list_elem donation_elem;     /* 다른 thread의 donations에 들어갈 때 사용 */
+```
+
+| 필드 | 역할 | 갱신 시점 |
+|------|------|-----------|
+| `priority` | 스케줄러가 보는 값. donation으로 일시 상승 가능 | donation, refresh, set_priority |
+| `original_priority` | donation 끝나면 돌아갈 baseline | 생성 시 / `thread_set_priority` |
+| `wait_on_lock` | nested donation 체인을 따라가는 핵심 포인터 | `lock_acquire` 시작 / 락 획득 직후 |
+| `donations` | 같은 thread가 여러 lock을 들고 있을 때 lock 별로 들어온 donation을 모두 추적 | `lock_acquire` / `lock_release` |
+| `donation_elem` | `donations` 리스트 연결용. **`elem`과 분리**되어야 함 (ready_list와 동시에 들어 있을 수 있음) | — |
+
+> ⚠️ `elem`은 ready_list / waiters / sleep_list 용이고
+> `donation_elem`은 다른 thread의 `donations` 용. **절대 같이 쓰면 안 됨.**
+
+### 6.2 `struct lock` (`include/threads/synch.h`)
+
+```c
+struct lock {
+    struct thread *holder;           /* 현재 lock을 보유한 thread (없으면 NULL) */
+    struct semaphore semaphore;      /* 내부 binary semaphore */
+};
+```
+
+donation 체인 추적은 `current->wait_on_lock->holder` → `holder->wait_on_lock->holder`
+… 형태로 따라간다. `holder`만 있으면 충분.
+
+### 6.3 작성해야 할 헬퍼 3종
+
+`synch.c` 상단에서 이미 선언만 해둔 함수들. 호출 위치까지 같이 정리.
+
+#### `donate_priority(void)` — nested donation 전파
+```c
+static void donate_priority (void);
+```
+- 호출 위치: **`lock_acquire`**에서 `sema_down` 직전 (락 보유자가 있을 때).
+- 동작: 현재 thread의 priority를 `wait_on_lock->holder`에게 전달하고,
+  그 holder가 또 다른 lock을 기다리고 있으면 그 holder에게도 전달.
+- **depth ≤ 8** 제한 (Pintos spec).
+- 종료 조건: `wait_on_lock == NULL` || `holder == NULL` ||
+  holder의 priority가 이미 충분히 큼.
+
+#### `refresh_priority(void)` — donation 끝난 뒤 effective priority 재계산
+```c
+static void refresh_priority (void);
+```
+- 호출 위치:
+  1. `lock_release` 직후 (그 lock으로 받은 donation을 정리한 후)
+  2. `thread_set_priority` 안 (사용자가 base를 바꿨을 때)
+- 동작:
+  ```
+  priority = original_priority
+  if (donations 비어있지 않음)
+      priority = max(priority, donations 안의 최대 priority)
+  ```
+
+#### `remove_with_lock(struct lock *lock)` — 특정 lock 관련 donation 정리
+```c
+static void remove_with_lock (struct lock *lock);
+```
+- 호출 위치: **`lock_release`** 안, `sema_up` 직전.
+- 동작: 현재 thread의 `donations`를 순회하며 `wait_on_lock == lock`
+  인 entry를 모두 제거.
+- 이게 필요한 이유: 한 thread가 여러 lock을 들고 있으면 `donations`에는
+  서로 다른 lock 때문에 들어온 donor들이 섞여 있음 → 지금 푸는 lock 것만
+  골라서 빼야 함.
+
+### 6.4 호출 시점 한눈에 보기 ⭐
+
+```
+init_thread:
+    priority           = priority_arg
+    original_priority  = priority_arg
+    wait_on_lock       = NULL
+    list_init(&donations)
+
+lock_acquire:
+    if (lock->holder != NULL) {
+        current->wait_on_lock = lock
+        list_insert_ordered(&holder->donations,
+                            &current->donation_elem,
+                            cmp_donation_priority, NULL)
+        donate_priority()
+    }
+    sema_down(&lock->semaphore)        ← 여기서 block / 깨어남
+    current->wait_on_lock = NULL
+    lock->holder = current
+
+lock_release:
+    remove_with_lock(lock)
+    refresh_priority()
+    lock->holder = NULL
+    sema_up(&lock->semaphore)
+
+thread_set_priority(new):
+    original_priority = new
+    refresh_priority()
+    /* effective priority가 ready_list 최댓값보다 낮아지면 yield */
+```
+
+> mlfqs 모드(Project 1 Part 4)에서는 donation을 끄도록 `if (!thread_mlfqs)`
+> 분기를 둬야 하지만, 지금 단계에선 무시해도 OK.
+
+### 6.5 `donations` 리스트 비교 함수
+
+기존 `cmp_priority`는 `struct thread.elem`을 가정한다. donations는
+`donation_elem`을 사용하므로 별도 비교 함수가 필요.
+
+```c
+static bool
+cmp_donation_priority (const struct list_elem *a,
+                       const struct list_elem *b,
+                       void *aux UNUSED) {
+    struct thread *ta = list_entry(a, struct thread, donation_elem);
+    struct thread *tb = list_entry(b, struct thread, donation_elem);
+    return ta->priority > tb->priority;   /* 내림차순 less */
+}
+```
+
+`list_insert_ordered`로 항상 정렬 유지 → `list_front`만 봐도 max 가능.
+또는 `list_min(donations, cmp_donation_priority, NULL)`로 뽑아도 됨
+(섹션 1에서 봤던 `list_min` ↔ "내림차순 less" 함정 그대로 적용).
+
+---
+
+## 7. 자주 쓰는 패턴 모음
 
 ### 패턴 1 — "인터럽트 끄고 list 조작 후 block"
 ```c
@@ -485,9 +623,66 @@ while (!CONDITION)
 lock_release(&lock);
 ```
 
+### 패턴 5 — "nested donation 체인 따라 priority 전파"
+```c
+/* donate_priority 본체 — depth 8 제한 */
+struct thread *cur = thread_current();
+for (int depth = 0; depth < 8; depth++) {
+    if (cur->wait_on_lock == NULL) break;
+    struct thread *holder = cur->wait_on_lock->holder;
+    if (holder == NULL) break;
+    if (holder->priority >= cur->priority) break;  /* 이미 충분 */
+    holder->priority = cur->priority;
+    cur = holder;                                  /* 다음 hop */
+}
+```
+
+### 패턴 6 — "donation 끝난 뒤 effective priority 재계산 (refresh_priority)"
+```c
+struct thread *cur = thread_current();
+cur->priority = cur->original_priority;            /* baseline 복원 */
+
+if (!list_empty(&cur->donations)) {
+    /* donations가 cmp_donation_priority(내림차순 less)로 정렬되어 있다면
+       front가 최대 — list_min과 list_front 어느 쪽이든 OK */
+    struct list_elem *e = list_front(&cur->donations);
+    struct thread *top = list_entry(e, struct thread, donation_elem);
+    if (top->priority > cur->priority)
+        cur->priority = top->priority;
+}
+```
+
+### 패턴 7 — "특정 lock 때문에 들어온 donation만 골라서 제거 (remove_with_lock)"
+```c
+struct thread *cur = thread_current();
+struct list_elem *e = list_begin(&cur->donations);
+while (e != list_end(&cur->donations)) {
+    struct thread *t = list_entry(e, struct thread, donation_elem);
+    if (t->wait_on_lock == lock)
+        e = list_remove(e);          /* 다음 elem 받기 */
+    else
+        e = list_next(e);
+}
+```
+
+### 패턴 8 — "lock_acquire에서 donation 등록"
+```c
+struct thread *cur = thread_current();
+if (lock->holder != NULL) {
+    cur->wait_on_lock = lock;
+    list_insert_ordered(&lock->holder->donations,
+                        &cur->donation_elem,
+                        cmp_donation_priority, NULL);
+    donate_priority();
+}
+sema_down(&lock->semaphore);            /* 여기서 block */
+cur->wait_on_lock = NULL;               /* 깨어났으면 더 이상 대기 X */
+lock->holder = cur;
+```
+
 ---
 
-## 7. 흔히 하는 실수 체크리스트
+## 8. 흔히 하는 실수 체크리스트
 
 - [ ] `list_init` 안 부르고 `list_push_back` 호출 → 즉시 깨짐
 - [ ] `thread_block` 호출 전에 어떤 list에도 자기를 등록 안 함 → 영원히 못 깨움
@@ -497,3 +692,14 @@ lock_release(&lock);
 - [ ] `cond_wait`을 `if`로 wrapping (정답: `while`)
 - [ ] `lock_acquire` 호출자가 이미 lock 보유 → deadlock (재귀 lock 아님)
 - [ ] `sema_up` 직후 yield 안 함 → 깨운 thread가 더 높은 우선순위여도 안 돌아감
+
+### Priority donation 전용
+
+- [ ] `init_thread`에서 `list_init(&donations)` 누락 → 첫 donation 시점에 깨짐
+- [ ] `init_thread`에서 `original_priority` 초기화 누락 → `refresh_priority`가 garbage 사용
+- [ ] `donations`에 `elem`을 넣음 (정답: `donation_elem`) → ready_list / waiters 자료구조 손상
+- [ ] `thread_set_priority`에서 `priority`에 직접 대입하고 끝 → 더 높은 donation을 무시하게 됨 (정답: `original_priority` 갱신 + `refresh_priority`)
+- [ ] `cmp_donation_priority`가 `>`(내림차순)인데 `list_max` 사용 → 가장 낮은 donation 반환
+- [ ] `lock_acquire`에서 `wait_on_lock = NULL`을 `sema_down` **전에** 풀어버림 → nested donation 체인이 끊어져 전파 실패
+- [ ] `lock_release`에서 `remove_with_lock` 없이 `refresh_priority`만 호출 → 이미 풀린 lock의 donor가 계속 남아 priority가 안 내려옴
+- [ ] donation chain에서 depth 제한 없음 → 사이클이나 깊은 체인에서 무한 루프 가능 (Pintos spec: 최대 8)
