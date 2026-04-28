@@ -16,12 +16,12 @@ void test_priority_change(void)
 
   msg("Creating a high-priority thread 2.");
   /**
-   * 스레드 생성 시 1로 우선순위
+   * 스레드 생성 시 32
    */
   thread_create("thread 2", PRI_DEFAULT + 1, changing_thread, NULL);
   msg("Thread 2 should have just lowered its priority.");
   /**
-   * 스레드의 우선순위를 -1로 변경
+   * 스레드의 우선순위 변경 및 바로 동작 29
    */
   thread_set_priority(PRI_DEFAULT - 2);
   msg("Thread 2 should have just exited.");
@@ -34,6 +34,9 @@ static void
 changing_thread(void *aux UNUSED)
 {
   msg("Thread 2 now lowering priority.");
+  /**
+   * 작동 중 일때, 우선순위 변경 30
+   */
   thread_set_priority(PRI_DEFAULT - 1);
   msg("Thread 2 exiting.");
 }

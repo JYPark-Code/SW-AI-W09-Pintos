@@ -102,6 +102,14 @@ struct list
    name of the outer structure STRUCT and the member name MEMBER
    of the list element.  See the big comment at the top of the
    file for an example. */
+/**
+ * 멤버 포인터로부터 원래 바깥 struct의 시작 주소를 되찾는 매크로
+ * 리눅스의 container_of와 거의 같은 개념
+ *
+ * 리스트에는 struct list_elem만 연결
+ * 우리가 진짜 쓰고 싶은 건 struct thread, struct semaphore_elem 같은 바깥 구조체
+ * 그래서 list_elem*을 다시 "이걸 품고 있는 원래 struct"로 변경
+ */
 #define list_entry(LIST_ELEM, STRUCT, MEMBER) \
    ((STRUCT *)((uint8_t *)&(LIST_ELEM)->next - offsetof(STRUCT, MEMBER.next)))
 

@@ -226,6 +226,11 @@ static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
+	/**
+	 * 실제로 인터럽트 컨텍스트에서 에러를 직접 발생시켜보았다.
+	 * 즉, ASSERT(!intr_context())는 인터럽트 컨텍스트인지를 확인하는 여부이다.
+	 */
+	// thread_yield();
 
 	while (!list_empty(&sleep_list))
 	{

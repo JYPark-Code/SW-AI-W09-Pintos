@@ -1,6 +1,10 @@
+priority-preempt PASS
 alarm-simultaneous PASS
+priority-condvar PASS
 alarm-single PASS
 alarm-priority PASS
+priority-fifo PASS
+priority-sema PASS
 alarm-zero PASS
 priority-change FAIL
 alarm-negative PASS

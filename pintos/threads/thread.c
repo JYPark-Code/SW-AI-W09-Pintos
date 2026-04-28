@@ -90,7 +90,7 @@ wakeup_priority(const struct list_elem *a,
 	const struct thread *ta = list_entry(a, struct thread, elem);
 	const struct thread *tb = list_entry(b, struct thread, elem);
 
-	return ta->priority >= tb->priority;
+	return ta->priority > tb->priority;
 }
 
 /* Initializes the threading system by transforming the code
@@ -322,6 +322,11 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock(t);
+	struct thread *curr = thread_current();
+	if (curr->priority < t->priority)
+	{
+		thread_yield();
+	}
 
 	return tid;
 }
@@ -356,7 +361,8 @@ void thread_unblock(struct thread *t)
 
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, wakeup_priority, NULL);
+	// list_push_front(&ready_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
@@ -421,7 +427,8 @@ void thread_yield(void)
 
 	old_level = intr_disable();
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem);
+		// list_push_front(&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, wakeup_priority, NULL);
 	do_schedule(THREAD_READY);
 	intr_set_level(old_level);
 }
@@ -447,12 +454,24 @@ void thread_set_priority(int new_priority)
 
 	old_level = intr_disable();
 	curr = thread_current();
-	struct thread *main = list_pop_back(&ready_list);
-	if (main->priority > curr->priority)
-	{
-		thread_yield();
-	}
 	curr->priority = new_priority;
+	if (!list_empty(&ready_list))
+	{
+		struct thread *t = list_entry(list_front(&ready_list), struct thread, elem);
+
+		if (curr->priority < t->priority)
+		{
+			thread_yield();
+		}
+	}
+
+	// old_level = intr_disable();
+	// curr = thread_current(); // main
+	// if (main->priority > curr->priority)
+	// {
+	// 	thread_yield();
+	// }
+	// curr->priority = new_priority;
 	// list_insert_ordered(&ready_list, &curr->elem, wakeup_priority, NULL);
 	// thread_block();
 

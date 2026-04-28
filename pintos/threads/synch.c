@@ -32,6 +32,17 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+static bool
+wakeup_priority(const struct list_elem *a,
+				const struct list_elem *b,
+				void *aux UNUSED)
+{
+	const struct thread *ta = list_entry(a, struct thread, elem);
+	const struct thread *tb = list_entry(b, struct thread, elem);
+
+	return ta->priority > tb->priority;
+}
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -69,7 +80,14 @@ void sema_init(struct semaphore *sema, unsigned value)
 /**
  * 세마포어를 "획득"하는 함수
  * value가 0이면 현재 스레드를 waiters에 넣고 잠재움
+ * 현재 실행중인 스레드를 sema->waiters에 넣는다.
  *
+ * value == 0이면 현재 스레드를 waiters에 넣고 block한 뒤, 깨어나서 value-- 함
+ * 반대로 sema_up은 waiters가 있으면 하나를 깨우고 value++
+ * +1의 의미는 자원을 하나 반납했다.
+ *
+ * value : 남아 있는 통과권 수
+ * waiters : 통과권이 없어서 자고 있는 스레드 목록
  */
 void sema_down(struct semaphore *sema)
 {
@@ -85,7 +103,8 @@ void sema_down(struct semaphore *sema)
 	{
 		// 현재 스레드를 waiters에 넣고 잠재움
 		// value가 양수면 value를 1 감소시키고 통과
-		list_push_back(&sema->waiters, &thread_current()->elem);
+		// list_push_back(&sema->waiters, &thread_current()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current()->elem, wakeup_priority, NULL);
 		thread_block();
 	}
 	sema->value--;
@@ -134,15 +153,41 @@ bool sema_try_down(struct semaphore *sema)
 void sema_up(struct semaphore *sema)
 {
 	enum intr_level old_level;
+	struct thread *wakeup;
+	bool should_yield = false;
+	bool in_intr;
 
 	ASSERT(sema != NULL);
 
 	old_level = intr_disable();
+	in_intr = intr_context();
+	// ready에 바로 넣지 말고 깨워야할 애를 바로 받아서 바로 비교 후 깨우기
 	if (!list_empty(&sema->waiters))
-		thread_unblock(list_entry(list_pop_front(&sema->waiters),
-								  struct thread, elem));
+	{
+		wakeup = list_entry(list_pop_front(&sema->waiters),
+							struct thread, elem);
+		thread_unblock(wakeup);
+
+		// 깨운 스레드가 sema_up()이 끝나기 전에 먼저 실행되면 문제
+		// struct thread *curr = thread_current();
+		// if (curr->priority < wakeup->priority)
+		// {
+		// 	thread_yield();
+		// }
+		struct thread *curr = thread_current();
+		if (curr->priority < wakeup->priority)
+		{
+			should_yield = true;
+		}
+	}
 	sema->value++;
+
 	intr_set_level(old_level);
+
+	if (should_yield)
+	{
+		thread_yield();
+	}
 }
 
 static void sema_test_helper(void *sema_);
@@ -267,11 +312,36 @@ bool lock_held_by_current_thread(const struct lock *lock)
 }
 
 /* One semaphore in a list. */
+/**
+ * Pintos는 대기실을 구현할 때, 기다리는 사람마다 개인용 세마포어 하나씩 붙여 둠
+ * 그 개인용 세마포어를 담는 껍데기가 struct semaphore_elem
+ * 대기열에 들어갈 수 있고, 동시에 자기만의 잠금벨도 가진 대기표
+ *
+ * 어떤 스레드 A는 "지금은 못 한다. 어떤 조건이 참이 될 때까지 기다려야 한다."
+ * 어떤 스레드 b는 나중에 그 조건을 참으로 만든다.
+ * 그때 B가 A를 깨워준다.
+ *
+ * 누가 기다리고 있으면 깨워라
+ * 기다리는 사람이 없으면 signal은 사라짐
+ * 즉 상태를 저장하지 않음
+ */
 struct semaphore_elem
 {
 	struct list_elem elem;		/* List element. */
 	struct semaphore semaphore; /* This semaphore. */
+	int priority;
 };
+
+static bool
+sema_elem_priority_more(const struct list_elem *a,
+						const struct list_elem *b,
+						void *aux UNUSED)
+{
+	const struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
+	const struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
+
+	return sa->priority > sb->priority;
+}
 
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -303,17 +373,40 @@ void cond_init(struct condition *cond)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+/**
+ * 1. 현재 스레드가 waiter 라는 semaphore_elem 만듬
+ * 2. waiter.semaphore를 0으로 초기화
+ * 3. cond->waiters 리스트에 waiter.elem을 넣음
+ * 4. 가지고 있던 lock을 놓음
+ * 5. sema_down(&waiter.semaphore)를 호출해서 잠듬
+ * 6. 나중에 누군가 cond_signal()을 부름
+ * 7. cond_signal()은 cond->waiters에서 waiter 하나를 꺼냄
+ * 8. 그 waiter 안의 semaphore에 sema_up()을 해줌
+ * 9. 잠들어 있던 스레드가 깸
+ * 10. 깨어난 뒤 다시 lock_acquire(lock) 해서 락을 잡고 돌아옴
+ */
 void cond_wait(struct condition *cond, struct lock *lock)
 {
+	// 조건변수 대기자 한명 당, 깨울 수 있는 개인용 세마포어를 하나씩 붙여두는 것
 	struct semaphore_elem waiter;
 
 	ASSERT(cond != NULL);
 	ASSERT(lock != NULL);
 	ASSERT(!intr_context());
+	// 락을 확인해서 현재 스레드가 lock 걸린 상태여야만 한다.
 	ASSERT(lock_held_by_current_thread(lock));
 
+	// 현재 semaphore_elem의 세마포어를 0으로
+	/**
+	 * cond_wait에서 각 스레드는 자기만의 지역변수 struct semaphore_elem waiter; 를 하나 만듬
+	 * waiter.semaphore를 0으로 초기화한 뒤 cond->waiters 리스트에 waiter.elem을 넣음
+	 * 그 다음 sema_down(&waiter.semaphore)로 잠듬
+	 * 나중에 cond_signal()이 cond->waiters에서 하나 꺼내 그 안의 semaphore에 sema_up()을 호출해 그 대기자를 깨움
+	 */
 	sema_init(&waiter.semaphore, 0);
-	list_push_back(&cond->waiters, &waiter.elem);
+	waiter.priority = thread_current()->priority;
+	list_insert_ordered(&cond->waiters, &waiter.elem, sema_elem_priority_more, NULL);
+	// list_push_back(&cond->waiters, &waiter.elem);
 	lock_release(lock);
 	sema_down(&waiter.semaphore);
 	lock_acquire(lock);
@@ -328,15 +421,23 @@ void cond_wait(struct condition *cond, struct lock *lock)
    interrupt handler. */
 void cond_signal(struct condition *cond, struct lock *lock UNUSED)
 {
+	struct thread *ready;
+	struct list_elem waiters;
+
 	ASSERT(cond != NULL);
 	ASSERT(lock != NULL);
 	ASSERT(!intr_context());
 	ASSERT(lock_held_by_current_thread(lock));
 
+	// 세마포어를 하나 받아서
+	// 세마 업(이 세마는 스레드 하나가 갖고 있는 세마포어)
 	if (!list_empty(&cond->waiters))
-		sema_up(&list_entry(list_pop_front(&cond->waiters),
-							struct semaphore_elem, elem)
-					 ->semaphore);
+	{
+		// 이미 semaphore_elem 안에 cond.waiters 리스트가 들어가 있음
+		struct semaphore_elem *sema_elem = list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem);
+
+		sema_up(&sema_elem->semaphore);
+	}
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
