@@ -326,21 +326,25 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 
+	/* donation 쪽 정의
+		1. new_priority를 priority가 아닌
+		original_priority에 저장
+		2. refresh_priority()로 실제 우선순위 재계산
+		→ donations 있으면 donation 값 유지
+		→ donations 없으면 new_priority 적용
+		3. yield 조건 확인
+	*/
+	thread_current()->original_priority = new_priority;
 
-    /* 1. 현재 스레드의 우선순위를 new_priority로 변경 */
-    thread_current()->priority = new_priority;
+	refresh_priority();
 
-    /* 2. ready_list가 비어있지 않고
-          최고 우선순위 thread가 현재보다 높으면 즉시 CPU 양보 */
-    if (!list_empty(&ready_list)) {
-        struct thread *highest = list_entry(
-            list_max(&ready_list, cmp_priority, NULL),
-            struct thread, elem);
-
-        /* 3. 현재 thread보다 높은 우선순위가 있으면 yield */
-        if (highest->priority > thread_current()->priority)
-            thread_yield();
-    }
+	if (!list_empty(&ready_list)) {
+	struct thread *highest = list_entry(
+		list_max(&ready_list, cmp_priority, NULL),
+		struct thread, elem);
+	if (highest->priority > thread_current()->priority)
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -426,6 +430,29 @@ kernel_thread (thread_func *function, void *aux) {
 
 /* Does basic initialization of T as a blocked thread named
    NAME. */
+
+/* 스레드 T를 BLOCKED 상태의 기본 스레드로 초기화한다.
+ *
+ * NAME: 디버깅용 스레드 이름
+ * PRIORITY: 스레드의 초기 우선순위 (PRI_MIN ~ PRI_MAX)
+ *
+ * 초기화 항목:
+ * - 스레드 구조체 전체를 0으로 초기화 (memset)
+ * - 상태: THREAD_BLOCKED (생성 직후 대기 상태) 
+ * - 이름, 스택 포인터, 우선순위 설정
+ *
+ * Priority Donation 관련:
+ * - original_priority: donation 이전 원래 우선순위 보존용
+ *                      lock 반환 시 복원 기준값으로 사용
+ * - wait_on_lock: 현재 기다리는 lock 포인터
+ *                 NULL = 아무 lock도 기다리지 않음
+ *                 nested donation에서 체인 탐색에 사용
+ * - donations: 이 스레드에게 priority를 기부한 스레드들의 리스트
+ *              multiple donation 처리 및 lock 반환 시
+ *              effective priority 재계산에 사용
+ *
+ * 주의: 이 함수 호출 후 thread_unblock()을 통해
+ *       READY 상태로 전환해야 스케줄링 대상이 된다. */
 static void
 init_thread (struct thread *t, const char *name, int priority) {
 	ASSERT (t != NULL);
@@ -437,6 +464,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	/* Priority Donation 관련 초기화 */
+	t->original_priority = priority;  /* 원래 우선순위 저장 */
+	t->wait_on_lock = NULL;           /* 기다리는 lock 없음 */
+	list_init(&t->donations);         /* donation 리스트 초기화 */
 	t->magic = THREAD_MAGIC;
 }
 
