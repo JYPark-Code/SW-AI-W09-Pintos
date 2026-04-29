@@ -1,5 +1,6 @@
 # 별도 정리
 pdfs/
+.vscode/
 
 # Pintos 빌드 중간 파일 및 산출물
 *.o
