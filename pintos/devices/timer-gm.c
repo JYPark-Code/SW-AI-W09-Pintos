@@ -19,7 +19,20 @@
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
+static struct list sleep_list;
+static bool wakeup_less(const struct list_elem *a,
+						const struct list_elem *b,
+						void *aux UNUSED);
+static bool
+wakeup_less(const struct list_elem *a,
+			const struct list_elem *b,
+			void *aux UNUSED)
+{
+	const struct thread *ta = list_entry(a, struct thread, elem);
+	const struct thread *tb = list_entry(b, struct thread, elem);
 
+	return ta->wakeup_tick < tb->wakeup_tick || ta->priority > tb->priority;
+}
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -93,11 +106,24 @@ timer_elapsed(int64_t then)
 /* Suspends execution for approximately TICKS timer ticks. */
 void timer_sleep(int64_t ticks)
 {
-	int64_t start = timer_ticks();
+	if (ticks <= 0)
+	{
+		return;
+	}
 
+	enum intr_level old_level;
+	struct thread *curr;
 	ASSERT(intr_get_level() == INTR_ON);
-	while (timer_elapsed(start) < ticks)
-		thread_yield();
+
+	old_level = intr_disable();
+	curr = thread_current();
+
+	curr->wakeup_tick = timer_ticks() + ticks;
+	// curr->priority
+	list_insert_ordered(&sleep_list, &curr->elem, wakeup_less, NULL);
+	thread_block();
+
+	intr_set_level(old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */

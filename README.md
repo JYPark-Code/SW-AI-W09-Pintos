@@ -1,3 +1,58 @@
+# 2026-04-24 Meeting Contents
+
+## 주요 안건
+
+### 1. 스크럼 시간 (토, 월, 화, 수)
+
+`매일 아침 10시 30분`  
+`하루 과제 볼륨 선정 - 매일 스프린트 범위 선정`
+
+- `깃 북 공부범위`
+- `테스트 범위`
+
+`매일 A, B, C, D 멤버 변경`
+
+### 2. 코어타임 시간
+
+`매일 밤 10시`  
+https://casys-kaist.github.io/pintos-kaist/project1/introduction.html
+
+1. `pintos-kaist docs [git book] - homework scope discussion`
+2. `개념 공부 1topic 1quiz - 인당 5 ~ 10분`
+3. `코드 리뷰`
+   - [A, B] 정해진 것 리뷰 [C, D] 정해진 것 리뷰
+     - `먼저 코어타임 전에 한 번 맞출것 정해두기 필수`
+     - `매일 A, B, C, D 멤버 변경`
+   - 전체적으로 A, B, C, D 코드 리뷰 후 머지
+
+### 3. 팀내 룰
+
+1. 공사구분 확실히 (상호 존대)
+2. 긴 대화는 슬랙으로 먼저 요청
+3. 공부하기로 한 약속한 범위는 반드시 해오기
+
+### 4. 깃 헙 브랜치 전략
+
+`매일 밤 Merge 후 A + B, C + D 브랜치는 Merge 후 Pull 받고 마무리(최신화 유지)`
+
+- Main
+  - dev
+    - A + B
+      - A
+      - B
+    - C + D
+      - C
+      - D
+
+### 4. 진행할 내용
+
+```
+테스트 내용은 여기서 선정
+Alarm Clock -> Priority Scheduling -> Priority Donation -> MLFQS
+```
+
+`토 + 월 + 화` 까지 마무리 하고 `수요일` 때 마지막 합병 후 발표 준비
+
 # 📘 Docker기반 Pintos 개발 환경 구축 가이드 
 
 이 문서는 **Windows**와 **macOS** 사용자가 Docker와 VSCode DevContainer 기능을 활용하여 Pintos OS 프로젝트를 빠르게 구축할 수 있도록 도와줍니다.
