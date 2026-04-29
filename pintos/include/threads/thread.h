@@ -94,6 +94,8 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	int64_t wake_tick;                  /* Tick when timer_sleep() wakes up. */
+	struct list_elem sleep_elem;        /* List element for sleeping threads. */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -142,5 +144,9 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+bool cmp_priority (const struct list_elem *a,
+                   const struct list_elem *b,
+                   void *aux);
 
 #endif /* threads/thread.h */
