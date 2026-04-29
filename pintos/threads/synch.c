@@ -105,34 +105,30 @@ sema_try_down (struct semaphore *sema) {
 void
 sema_up (struct semaphore *sema) {
 	enum intr_level old_level;
+	struct thread *unblocked = NULL;
 
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
 	sema->value++;
-	if (!list_empty (&sema->waiters)){
-		/*  현재: 맨 앞 thread를 꺼냄 (우선순위 무시)
-			문제: waiters가 정렬되어 있지 않아서
-					가장 높은 우선순위 thread가 아닐 수 있음
-			수정 필요: list_max()로 가장 높은 우선순위 thread를 찾아서 꺼내야 함 */	
-		// thread_unblock (list_entry (list_pop_front (&sema->waiters),
-		// 			struct thread, elem));
-
-		/* 1. 가장 높은 우선순위 elem 찾기 */
-		struct list_elem *max_elem = list_min(&sema->waiters, cmp_priority, NULL);
-
-		/* 2. 리스트에서 제거 */
-		list_remove(max_elem);
-
-		/* thread_unblock 호출 */
-		thread_unblock (list_entry (max_elem, struct thread, elem));
-
-		/* 높은 우선순위 thread가 unblock됐으면 즉시 양보 */
-		if (!intr_context())
-			thread_yield();
+	if (!list_empty (&sema->waiters)) {
+		struct list_elem *max_elem =
+			list_min (&sema->waiters, cmp_priority, NULL);
+		list_remove (max_elem);
+		unblocked = list_entry (max_elem, struct thread, elem);
+		thread_unblock (unblocked);
 	}
-	
 	intr_set_level (old_level);
+
+	/* 깨운 thread가 더 높을 때만 yield. interrupt 컨텍스트면
+	   intr_yield_on_return으로 ISR 종료 시점에 양보 예약. */
+	if (unblocked != NULL
+			&& unblocked->priority > thread_current ()->priority) {
+		if (intr_context ())
+			intr_yield_on_return ();
+		else
+			thread_yield ();
+	}
 }
 
 static void sema_test_helper (void *sema_);
