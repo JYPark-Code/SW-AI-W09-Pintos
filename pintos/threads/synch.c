@@ -261,20 +261,20 @@ lock_held_by_current_thread (const struct lock *lock) {
 
 /* One semaphore in a list. */
 struct semaphore_elem {
-	struct list_elem elem;              /* List element. */
-	struct semaphore semaphore;         /* This semaphore. */
-	int priority;                       /* Highest waiting priority. */
+	struct list_elem elem;              /* cond->waiters에 연결될 list element. */
+	struct semaphore semaphore;         /* 이 waiter를 재우고 깨우는 작은 semaphore. */
+	int priority;                       /* 이 waiter를 만든 thread의 priority. */
 };
 
 static bool
 semaphore_elem_priority_more (const struct list_elem *a,
 		const struct list_elem *b, void *aux UNUSED) {
 	const struct semaphore_elem *sa = list_entry (a,
-			struct semaphore_elem, elem);
+			struct semaphore_elem, elem); /* a elem의 주인 semaphore_elem을 찾는다. */
 	const struct semaphore_elem *sb = list_entry (b,
-			struct semaphore_elem, elem);
+			struct semaphore_elem, elem); /* b elem의 주인 semaphore_elem을 찾는다. */
 
-	return sa->priority > sb->priority;
+	return sa->priority > sb->priority; /* true면 a waiter가 b waiter보다 먼저 signal되어야 한다. */
 }
 
 /* Initializes condition variable COND.  A condition variable
@@ -282,9 +282,9 @@ semaphore_elem_priority_more (const struct list_elem *a,
    code to receive the signal and act upon it. */
 void
 cond_init (struct condition *cond) {
-	ASSERT (cond != NULL);
+	ASSERT (cond != NULL); /* 초기화할 condition variable이 실제로 있어야 한다. */
 
-	list_init (&cond->waiters);
+	list_init (&cond->waiters); /* 조건을 기다리는 semaphore_elem들의 대기열을 초기화한다. */
 }
 
 /* Atomically releases LOCK and waits for COND to be signaled by
@@ -309,20 +309,20 @@ cond_init (struct condition *cond) {
    we need to sleep. */
 void
 cond_wait (struct condition *cond, struct lock *lock) {
-	struct semaphore_elem waiter;
+	struct semaphore_elem waiter; /* 현재 thread를 재울 작은 semaphore 포장지다. */
 
-	ASSERT (cond != NULL);
-	ASSERT (lock != NULL);
-	ASSERT (!intr_context ());
-	ASSERT (lock_held_by_current_thread (lock));
+	ASSERT (cond != NULL); /* 기다릴 condition variable이 있어야 한다. */
+	ASSERT (lock != NULL); /* condition과 함께 쓰는 lock이 있어야 한다. */
+	ASSERT (!intr_context ()); /* 잠들 수 있으므로 interrupt context에서는 호출할 수 없다. */
+	ASSERT (lock_held_by_current_thread (lock)); /* cond_wait는 lock을 잡은 상태에서만 호출한다. */
 
-	sema_init (&waiter.semaphore, 0);
-	waiter.priority = thread_current ()->priority;
+	sema_init (&waiter.semaphore, 0); /* signal 전까지 잠들도록 작은 semaphore value를 0으로 둔다. */
+	waiter.priority = thread_current ()->priority; /* cond->waiters 정렬을 위해 현재 priority를 저장한다. */
 	list_insert_ordered (&cond->waiters, &waiter.elem,
-			semaphore_elem_priority_more, NULL);
-	lock_release (lock);
-	sema_down (&waiter.semaphore);
-	lock_acquire (lock);
+			semaphore_elem_priority_more, NULL); /* thread가 아니라 waiter 포장지를 priority 순으로 넣는다. */
+	lock_release (lock); /* 조건을 기다리는 동안 다른 thread가 공유 상태를 바꿀 수 있게 lock을 놓는다. */
+	sema_down (&waiter.semaphore); /* 작은 semaphore에서 BLOCKED 되어 signal을 기다린다. */
+	lock_acquire (lock); /* 깨어난 뒤 조건을 다시 확인할 수 있도록 lock을 다시 잡는다. */
 }
 
 /* If any threads are waiting on COND (protected by LOCK), then
@@ -334,16 +334,16 @@ cond_wait (struct condition *cond, struct lock *lock) {
    interrupt handler. */
 void
 cond_signal (struct condition *cond, struct lock *lock UNUSED) {
-	ASSERT (cond != NULL);
-	ASSERT (lock != NULL);
-	ASSERT (!intr_context ());
-	ASSERT (lock_held_by_current_thread (lock));
+	ASSERT (cond != NULL); /* signal할 condition variable이 있어야 한다. */
+	ASSERT (lock != NULL); /* condition과 함께 쓰는 lock이 있어야 한다. */
+	ASSERT (!intr_context ()); /* condition signal은 interrupt context에서 쓰지 않는다. */
+	ASSERT (lock_held_by_current_thread (lock)); /* signal할 때도 같은 lock을 잡고 있어야 한다. */
 
 	if (!list_empty (&cond->waiters))
-		list_sort (&cond->waiters, semaphore_elem_priority_more, NULL);
+		list_sort (&cond->waiters, semaphore_elem_priority_more, NULL); /* priority가 바뀌었을 수 있으니 다시 정렬한다. */
 	if (!list_empty (&cond->waiters))
 		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+					struct semaphore_elem, elem)->semaphore); /* 가장 높은 waiter의 작은 semaphore를 up해서 thread를 깨운다. */
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
