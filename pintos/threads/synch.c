@@ -43,6 +43,17 @@ wakeup_priority(const struct list_elem *a,
 	return ta->priority > tb->priority;
 }
 
+static bool
+doner_priority(const struct list_elem *a,
+			   const struct list_elem *b,
+			   void *aux UNUSED)
+{
+	const struct thread *ta = list_entry(a, struct thread, donation_elem);
+	const struct thread *tb = list_entry(b, struct thread, donation_elem);
+
+	return ta->priority > tb->priority;
+}
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -264,17 +275,18 @@ void lock_acquire(struct lock *lock)
 	ASSERT(!lock_held_by_current_thread(lock));
 
 	// struct list *donation;
-	thread_current()->wate_on_lock = &lock;
+	thread_current()->wait_on_lock = lock;
 	if (lock->holder != NULL)
 	{
 		if (lock->holder->priority < thread_current()->priority)
 		{
 			lock->holder->priority = thread_current()->priority;
 		}
+		list_insert_ordered(&lock->holder->donations, &thread_current()->donation_elem, doner_priority, &lock);
 	}
 
 	sema_down(&lock->semaphore);
-	thread_current()->wate_on_lock = NULL;
+	thread_current()->wait_on_lock = NULL;
 	lock->holder = thread_current();
 }
 
@@ -308,7 +320,30 @@ void lock_release(struct lock *lock)
 	ASSERT(lock != NULL);
 	ASSERT(lock_held_by_current_thread(lock));
 
-	thread_current()->priority = thread_current()->original_priority;
+	struct thread *curr = thread_current();
+	int max = curr->original_priority;
+	struct list_elem *e;
+
+	for (e = list_begin(&curr->donations); e != list_end(&curr->donations);)
+	{
+		struct thread *donor = list_entry(e, struct thread, donation_elem);
+
+		if (donor->wait_on_lock == lock)
+		{
+			e = list_remove(e);
+		}
+		else
+		{
+			if (donor->priority > max)
+			{
+				max = donor->priority;
+			}
+			e = list_next(e);
+		}
+	}
+
+	curr->priority = max;
+
 	lock->holder = NULL;
 	sema_up(&lock->semaphore);
 }

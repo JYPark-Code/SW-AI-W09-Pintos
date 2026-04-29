@@ -95,8 +95,9 @@ struct thread
 	int priority;			   /* Priority. */
 	int64_t wakeup_tick;	   /* wake time */
 
-	struct lock *wate_on_lock; /* 현재 기다리고 있는 lock */
-	struct list donation;	   /* 다음 순서로 들어와야 할 리스트 */
+	struct lock *wait_on_lock; /* 현재 기다리고 있는 lock */
+	struct list donations;	   /* 다음 순서로 들어와야 할 리스트 (나에게 priority를 기부한 높은 순으로) */
+	struct list_elem donation_elem;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. */
 

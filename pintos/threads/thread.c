@@ -455,6 +455,7 @@ void thread_set_priority(int new_priority)
 	old_level = intr_disable();
 	curr = thread_current();
 	curr->priority = new_priority;
+	curr->original_priority = new_priority;
 	if (!list_empty(&ready_list))
 	{
 		struct thread *t = list_entry(list_front(&ready_list), struct thread, elem);
@@ -577,7 +578,8 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->original_priority = priority;
 	t->priority = priority;
-	t->wate_on_lock = NULL;
+	t->wait_on_lock = NULL;
+	list_init(&t->donations);
 	// 디버깅용 : 스택 오버플로우 감지
 	t->magic = THREAD_MAGIC;
 }

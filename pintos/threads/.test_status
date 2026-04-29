@@ -1,13 +1,14 @@
-priority-donate-multiple FAIL
+priority-donate-multiple PASS
 priority-donate-one PASS
 priority-preempt PASS
 alarm-simultaneous PASS
 priority-condvar PASS
 alarm-single PASS
+priority-donate-multiple2 PASS
 alarm-priority PASS
 priority-fifo PASS
 priority-sema PASS
 alarm-zero PASS
-priority-change FAIL
+priority-change PASS
 alarm-negative PASS
 alarm-multiple PASS
