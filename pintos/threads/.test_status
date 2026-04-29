@@ -3,6 +3,7 @@ priority-donate-one PASS
 priority-preempt PASS
 alarm-simultaneous PASS
 priority-condvar PASS
+priority-donate-nest PASS
 alarm-single PASS
 priority-donate-multiple2 PASS
 alarm-priority PASS

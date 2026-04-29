@@ -274,19 +274,33 @@ void lock_acquire(struct lock *lock)
 	ASSERT(!intr_context());
 	ASSERT(!lock_held_by_current_thread(lock));
 
+	struct thread *curr = thread_current();
+	struct lock *wait_lock = lock;
+
+	curr->wait_on_lock = lock;
+
 	// struct list *donation;
-	thread_current()->wait_on_lock = lock;
 	if (lock->holder != NULL)
 	{
-		if (lock->holder->priority < thread_current()->priority)
+		list_insert_ordered(&lock->holder->donations, &curr->donation_elem, doner_priority, NULL);
+
+		while (wait_lock != NULL && wait_lock->holder != NULL)
 		{
-			lock->holder->priority = thread_current()->priority;
+			struct thread *holder = wait_lock->holder;
+
+			if (holder->priority < curr->priority)
+			{
+				wait_lock->holder->priority = curr->priority;
+			}
+			else
+				break;
+
+			wait_lock = holder->wait_on_lock;
 		}
-		list_insert_ordered(&lock->holder->donations, &thread_current()->donation_elem, doner_priority, &lock);
 	}
 
 	sema_down(&lock->semaphore);
-	thread_current()->wait_on_lock = NULL;
+	curr->wait_on_lock = NULL;
 	lock->holder = thread_current();
 }
 
