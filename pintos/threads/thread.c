@@ -36,6 +36,7 @@ static struct thread *initial_thread;
 
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
+struct list sleep_list;
 
 /* Thread destruction requests */
 static struct list destruction_req;
@@ -62,6 +63,8 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
+// 우선순위 비교
+bool cmp_priority (const struct list_elem *, const struct list_elem *, void *);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -108,6 +111,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -180,6 +184,9 @@ tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
 	struct thread *t;
+	/* Compare the priorites of the currently running thread and the newly inserted one.
+	   Yield the CPU if the newly arriving thread has higher priority
+	*/
 	tid_t tid;
 
 	ASSERT (function != NULL);
@@ -190,7 +197,7 @@ thread_create (const char *name, int priority,
 		return TID_ERROR;
 
 	/* Initialize thread. */
-	init_thread (t, name, priority);
+	init_thread (t, name, priority); 
 	tid = t->tid = allocate_tid ();
 
 	/* Call the kernel_thread if it scheduled.
@@ -206,6 +213,10 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+
+	/* 새로 생성된 스레드의 우선순위가 현재 스레드보다 높으면 CPU를 양보한다. */
+	if (t->priority > thread_current()->priority)
+		thread_yield();
 
 	return tid;
 }
@@ -240,7 +251,9 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	// list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
+
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -303,7 +316,8 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		// list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -311,7 +325,22 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	enum intr_level old_level;
+	struct thread *curr = thread_current ();
+	bool should_yield;
+
+	/* priority 변경과 ready_list 검사를 한 덩어리로 처리. */
+	old_level = intr_disable ();
+	curr->priority = new_priority;
+	should_yield = !list_empty (&ready_list)
+		&& list_entry (list_front (&ready_list),
+				struct thread, elem)->priority > curr->priority;
+	intr_set_level (old_level);
+
+	/* yield 결정은 락 밖에서. ready_list가 cmp_priority로 정렬돼 있으므로
+	   list_front가 곧 최고 우선순위. */
+	if (should_yield)
+		thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -587,4 +616,19 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+/* ready_list를 우선순위(priority) 기준으로 정렬하기 위한 비교 함수.
+   두 스레드를 비교하여, a의 우선순위가 b보다 높으면 true를 반환한다.
+   즉, 우선순위가 높은 스레드가 리스트 앞쪽에 오도록 한다. (내림차순)*/
+bool cmp_priority (const struct list_elem *a,
+              const struct list_elem *b,
+              void *aux)
+{
+	(void) aux; // aux 안쓴다.
+
+    struct thread *ta = list_entry(a, struct thread, elem);
+    struct thread *tb = list_entry(b, struct thread, elem);
+
+    return ta->priority > tb->priority;
 }
