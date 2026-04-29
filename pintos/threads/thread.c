@@ -57,6 +57,8 @@ bool thread_mlfqs;
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
+static bool thread_priority_more (const struct list_elem *,
+		const struct list_elem *, void *aux);
 static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
@@ -78,6 +80,15 @@ static tid_t allocate_tid (void);
 // Because the gdt will be setup after the thread_init, we should
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
+
+static bool
+thread_priority_more (const struct list_elem *a,
+		const struct list_elem *b, void *aux UNUSED) {
+	const struct thread *ta = list_entry (a, struct thread, elem); /* a elem의 주인 thread를 찾는다. */
+	const struct thread *tb = list_entry (b, struct thread, elem); /* b elem의 주인 thread를 찾는다. */
+
+	return ta->priority > tb->priority; /* true면 a가 b보다 앞에 와야 한다. */
+}
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -205,7 +216,9 @@ thread_create (const char *name, int priority,
 	t->tf.eflags = FLAG_IF;
 
 	/* Add to run queue. */
-	thread_unblock (t);
+	thread_unblock (t); /* 새 thread t를 BLOCKED에서 READY로 바꾸고 ready_list에 넣는다. */
+	if (t->priority > thread_current ()->priority) /* 새 thread가 현재 thread보다 priority가 높으면 */
+		thread_yield (); /* 현재 thread가 CPU를 양보해서 새 thread가 먼저 실행될 수 있게 한다. */
 
 	return tid;
 }
@@ -238,11 +251,11 @@ thread_unblock (struct thread *t) {
 
 	ASSERT (is_thread (t));
 
-	old_level = intr_disable ();
-	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
-	t->status = THREAD_READY;
-	intr_set_level (old_level);
+	old_level = intr_disable (); /* ready_list와 status를 바꾸는 동안 interrupt를 막는다. */
+	ASSERT (t->status == THREAD_BLOCKED); /* unblock 대상은 반드시 BLOCKED thread여야 한다. */
+	list_insert_ordered (&ready_list, &t->elem, thread_priority_more, NULL); /* priority 순서로 ready_list에 넣는다. */
+	t->status = THREAD_READY; /* 이제 scheduler가 고를 수 있는 READY 상태가 된다. */
+	intr_set_level (old_level); /* interrupt 상태를 원래대로 복구한다. */
 }
 
 /* Returns the name of the running thread. */
@@ -301,17 +314,30 @@ thread_yield (void) {
 
 	ASSERT (!intr_context ());
 
-	old_level = intr_disable ();
+	old_level = intr_disable (); /* 현재 thread를 ready_list에 다시 넣는 동안 interrupt를 막는다. */
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
-	do_schedule (THREAD_READY);
-	intr_set_level (old_level);
+		list_insert_ordered (&ready_list, &curr->elem,
+				thread_priority_more, NULL); /* 양보한 현재 thread도 priority 순서로 줄을 다시 선다. */
+	do_schedule (THREAD_READY); /* 현재 thread를 READY로 만들고 다음 thread를 고른다. */
+	intr_set_level (old_level); /* interrupt 상태를 원래대로 복구한다. */
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	enum intr_level old_level;
+	struct thread *curr = thread_current ();
+	bool should_yield;
+
+	old_level = intr_disable (); /* priority 변경과 ready_list 확인을 한 덩어리로 처리한다. */
+	curr->priority = new_priority; /* 현재 thread의 priority를 새 값으로 바꾼다. */
+	should_yield = !list_empty (&ready_list)
+		&& list_entry (list_front (&ready_list),
+				struct thread, elem)->priority > curr->priority; /* ready_list 맨 앞이 나보다 높으면 양보해야 한다. */
+	intr_set_level (old_level); /* interrupt 상태를 원래대로 복구한다. */
+
+	if (should_yield)
+		thread_yield (); /* priority를 낮춘 결과, 더 높은 READY thread에게 CPU를 넘긴다. */
 }
 
 /* Returns the current thread's priority. */
