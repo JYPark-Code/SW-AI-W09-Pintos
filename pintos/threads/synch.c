@@ -35,10 +35,10 @@
 static bool
 thread_priority_more (const struct list_elem *a,
 		const struct list_elem *b, void *aux UNUSED) {
-	const struct thread *ta = list_entry (a, struct thread, elem);
-	const struct thread *tb = list_entry (b, struct thread, elem);
+	const struct thread *ta = list_entry (a, struct thread, elem); /* a elem의 주인 thread를 찾는다. */
+	const struct thread *tb = list_entry (b, struct thread, elem); /* b elem의 주인 thread를 찾는다. */
 
-	return ta->priority > tb->priority;
+	return ta->priority > tb->priority; /* true면 a가 b보다 앞에서 기다려야 한다. */
 }
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -52,10 +52,10 @@ thread_priority_more (const struct list_elem *a,
    thread, if any). */
 void
 sema_init (struct semaphore *sema, unsigned value) {
-	ASSERT (sema != NULL);
+	ASSERT (sema != NULL); /* 초기화할 semaphore가 실제로 있어야 한다. */
 
-	sema->value = value;
-	list_init (&sema->waiters);
+	sema->value = value; /* 현재 사용 가능한 허가권 개수를 설정한다. */
+	list_init (&sema->waiters); /* 허가권이 없을 때 잠들 thread들의 대기열을 초기화한다. */
 }
 
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value
@@ -73,14 +73,14 @@ sema_down (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 	ASSERT (!intr_context ());
 
-	old_level = intr_disable ();
-	while (sema->value == 0) {
+	old_level = intr_disable (); /* value와 waiters를 만지는 동안 interrupt를 막는다. */
+	while (sema->value == 0) { /* 허가권이 하나도 없으면 */
 		list_insert_ordered (&sema->waiters, &thread_current ()->elem,
-				thread_priority_more, NULL);
-		thread_block ();
+				thread_priority_more, NULL); /* 현재 thread를 semaphore waiters에 priority 순서로 넣는다. */
+		thread_block (); /* 현재 thread를 BLOCKED로 만들고 CPU에서 내려온다. */
 	}
-	sema->value--;
-	intr_set_level (old_level);
+	sema->value--; /* 허가권 하나를 사용하고 통과한다. */
+	intr_set_level (old_level); /* interrupt 상태를 원래대로 복구한다. */
 }
 
 /* Down or "P" operation on a semaphore, but only if the
@@ -95,15 +95,15 @@ sema_try_down (struct semaphore *sema) {
 
 	ASSERT (sema != NULL);
 
-	old_level = intr_disable ();
+	old_level = intr_disable (); /* value와 waiters를 만지는 동안 interrupt를 막는다. */
 	if (sema->value > 0)
 	{
-		sema->value--;
-		success = true;
+		sema->value--; /* 허가권이 있으면 하나 사용한다. */
+		success = true; /* 잠들지 않고 sema_down에 성공했다. */
 	}
 	else
-		success = false;
-	intr_set_level (old_level);
+		success = false; /* 허가권이 없으면 실패만 반환하고 BLOCKED 되지는 않는다. */
+	intr_set_level (old_level); /* interrupt 상태를 원래대로 복구한다. */
 
 	return success;
 }
@@ -114,28 +114,28 @@ sema_try_down (struct semaphore *sema) {
    This function may be called from an interrupt handler. */
 void
 sema_up (struct semaphore *sema) {
-	enum intr_level old_level;
-	struct thread *unblocked = NULL;
-	bool should_yield = false;
+	enum intr_level old_level; /* interrupt 상태를 저장해두는 변수다. */
+	struct thread *unblocked = NULL; /* 이번 sema_up으로 깨울 thread를 담는다. */
+	bool should_yield = false; /* 깨운 thread가 더 높으면 현재 thread가 양보해야 한다. */
 
-	ASSERT (sema != NULL);
+	ASSERT (sema != NULL); /* up할 semaphore가 실제로 있어야 한다. */
 
-	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters)) {
-		list_sort (&sema->waiters, thread_priority_more, NULL);
+	old_level = intr_disable (); /* value와 waiters를 만지는 동안 interrupt를 막는다. */
+	if (!list_empty (&sema->waiters)) { /* 기다리는 thread가 있으면 하나 깨운다. */
+		list_sort (&sema->waiters, thread_priority_more, NULL); /* 깨우기 직전에 priority 순서로 다시 정렬한다. */
 		unblocked = list_entry (list_pop_front (&sema->waiters),
-				struct thread, elem);
-		thread_unblock (unblocked);
-		should_yield = unblocked->priority > thread_current ()->priority;
+				struct thread, elem); /* waiters 맨 앞 elem을 꺼내 그 주인 thread를 찾는다. */
+		thread_unblock (unblocked); /* 그 thread를 BLOCKED에서 READY로 깨운다. */
+		should_yield = unblocked->priority > thread_current ()->priority; /* 깨운 thread가 현재 thread보다 높으면 선점 필요. */
 	}
-	sema->value++;
-	intr_set_level (old_level);
+	sema->value++; /* 허가권 하나를 추가하거나, 깨운 thread가 소비할 신호를 만든다. */
+	intr_set_level (old_level); /* interrupt 상태를 원래대로 복구한다. */
 
-	if (should_yield) {
+	if (should_yield) { /* 더 높은 priority thread를 깨웠다면 */
 		if (intr_context ())
-			intr_yield_on_return ();
+			intr_yield_on_return (); /* interrupt 안에서는 return 직전에 yield하도록 예약한다. */
 		else
-			thread_yield ();
+			thread_yield (); /* 일반 thread 문맥에서는 바로 CPU를 양보한다. */
 	}
 }
 
