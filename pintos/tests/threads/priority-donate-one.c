@@ -29,7 +29,8 @@ void test_priority_donate_one(void)
   ASSERT(thread_get_priority() == PRI_DEFAULT);
 
   lock_init(&lock);
-  lock_acquire(&lock);
+  lock_acquire(&lock); // main이 락을 가진 스레드가 되고, (실행중)
+  // waiters에
   thread_create("acquire1", PRI_DEFAULT + 1, acquire1_thread_func, &lock);
   msg("This thread should have priority %d.  Actual priority: %d.",
       PRI_DEFAULT + 1, thread_get_priority());

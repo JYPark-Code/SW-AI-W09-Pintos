@@ -1,3 +1,5 @@
+priority-donate-multiple FAIL
+priority-donate-one PASS
 priority-preempt PASS
 alarm-simultaneous PASS
 priority-condvar PASS

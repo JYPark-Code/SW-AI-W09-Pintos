@@ -575,8 +575,9 @@ init_thread(struct thread *t, const char *name, int priority)
 	strlcpy(t->name, name, sizeof t->name);
 	// 스택 포인터 초기화 (정확하게는 아직 모르겠다.)
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
-	//
+	t->original_priority = priority;
 	t->priority = priority;
+	t->wate_on_lock = NULL;
 	// 디버깅용 : 스택 오버플로우 감지
 	t->magic = THREAD_MAGIC;
 }
