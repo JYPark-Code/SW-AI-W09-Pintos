@@ -14,6 +14,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
@@ -199,11 +200,28 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
+/* stage 0 임시 구현 (자식 추적 없음).
+ *
+ * 왜 이렇게:
+ *   현재처럼 -1 즉시 반환하면, init 스레드가 process_wait(initd)에서
+ *   바로 복귀 → main이 power_off()로 머신을 끈다. 그 결과 자식 프로세스가
+ *   putbuf()로 찍은 stdout 출력이 채 콘솔에 도달하기 전에 종료되어
+ *   "테스트 결과를 볼 수 없는" 상태가 된다.
+ *
+ * 해결(최소):
+ *   값이 0인 로컬 세마포어를 sema_down 하여 부모를 영구 블록한다.
+ *   - 자식이 thread_exit/process_exit으로 마무리되며 출력은 그대로 콘솔로 나간다.
+ *   - 부모는 wake되지 않으므로 kernel은 timeout 또는 외부 종료 시까지 alive.
+ *   - 자식 list / exit_status 회수 / 좀비 정리는 정식 wait 구현 단계에서 추가.
+ *
+ * 한계:
+ *   진짜 "child_tid가 끝날 때까지" 동기화하지는 않는다. stage 0 디버깅 출력
+ *   확인용 스캐폴딩이며, multi-child 시나리오/정확한 exit code 반환은 이후 단계. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
+	struct semaphore stub;
+	sema_init(&stub, 0);
+	sema_down(&stub);
 	return -1;
 }
 
