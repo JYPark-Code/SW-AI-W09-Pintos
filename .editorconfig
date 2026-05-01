@@ -1,0 +1,37 @@
+# EditorConfig — https://editorconfig.org
+# 에디터 별 설정 차이를 줄이기 위한 프로젝트 공통 코드 스타일.
+# 참고: https://learn.microsoft.com/visualstudio/ide/create-portable-custom-editor-options
+
+root = true
+
+# 모든 파일 공통 기본값
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# C / 헤더 / 어셈블리 — Pintos는 탭 인덴트(폭 8)
+[*.{c,h,S}]
+indent_style = tab
+tab_width = 8
+
+# Makefile 계열 — 탭 필수 (recipe 라인이 탭이 아니면 make가 실패)
+[{Makefile,Makefile.*,Make.*,*.mk}]
+indent_style = tab
+tab_width = 8
+
+# Python 유틸 (utils/pintos 등) — PEP 8 기본
+[*.py]
+indent_style = space
+indent_size = 4
+
+# Markdown — 줄 끝 두 칸 공백이 line break이므로 trim 비활성화
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML / JSON
+[*.{yml,yaml,json}]
+indent_size = 2

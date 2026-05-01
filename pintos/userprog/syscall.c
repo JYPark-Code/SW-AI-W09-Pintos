@@ -6,6 +6,7 @@
 #include "threads/loader.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
+#include "threads/vaddr.h" /* is_user_vaddr / KERN_BASE 사용 */
 #include "intrinsic.h"
 
 void syscall_entry(void);
@@ -37,31 +38,60 @@ void syscall_init(void)
 			  FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-/* The main system call interface */
+/* stage 0 최소 메모리 검증.
+ *   - NULL 즉시 거절
+ *   - is_user_vaddr(p)는 ((uint64_t)p < KERN_BASE)와 동치 →
+ *     커널 영역 포인터를 유저가 넘긴 경우 차단
+ * 언맵된 페이지/페이지 경계 걸침 등 정식 검증은 이후 단계에서 추가. */
+static void
+validate_user_addr(const void *uaddr)
+{
+	if (uaddr == NULL || !is_user_vaddr(uaddr))
+		thread_exit();
+}
+
+/* x86-64 syscall ABI (KAIST 기준)
+ *   rax       = syscall 번호 / 반환값
+ *   rdi, rsi, rdx, r10, r8, r9 = 인자 1~6
+ * intr_frame->R 의 동명 필드에 그대로 들어 있다. */
 void syscall_handler(struct intr_frame *f UNUSED)
 {
-	// TODO: Your implementation goes here.
-	uint64_t syscall_no = f->R.rax;
+	uint64_t sysno = f->R.rax;
 
-	if (syscall_no == SYS_WRITE)
+	switch (sysno)
 	{
-		uint64_t fd = f->R.rdi;
-		const char *buffer = f->R.rsi;
-		uint64_t size = f->R.rdx;
+	case SYS_WRITE:
+	{
+		int fd = (int)f->R.rdi;
+		const void *buffer = (const void *)f->R.rsi;
+		unsigned size = (unsigned)f->R.rdx;
+
+		/* stage 0: KERN_BASE 체크만 (요구사항대로 최소화) */
+		validate_user_addr(buffer);
 
 		if (fd == 1)
 		{
+			/* fd=1 (stdout): putbuf로 콘솔 출력.
+			 *   - putbuf는 내부 console lock으로 한 호출분을 보호하여
+			 *     다른 출력과 섞이지 않는다.
+			 *   - 유저 모드 printf()의 최종 종착지가 바로 이 분기.
+			 *     이게 없으면 유저 프로그램의 모든 출력이 사라진다. */
 			putbuf(buffer, size);
-			f->R.rax = size;
+			f->R.rax = size; /* 쓴 바이트 수 반환 (stdout은 size 그대로) */
 		}
 		else
 		{
-			f->R.rax = -1;
+			/* fd != 1 은 stage 0 범위 밖.
+			 * 호출은 허용하되 의미 있는 동작 없이 -1 반환. */
+			f->R.rax = (uint64_t)-1;
 		}
-
-		return;
+		break;
 	}
-
-	printf("system call!\n");
-	thread_exit();
+	default:
+		/* 아직 라우팅 안 된 시스템 콜.
+		 * 디버깅 가시성을 위해 한 줄 찍고 종료. */
+		printf("[stage0] unhandled syscall: %llu\n",
+			   (unsigned long long)sysno);
+		thread_exit();
+	}
 }
