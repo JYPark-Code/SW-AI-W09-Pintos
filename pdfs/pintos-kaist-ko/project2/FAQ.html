@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로젝트 2 FAQ | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="argument_passing.html">인자 전달</a>
+<a class="nav-item" href="user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="system_call.html">시스템 콜</a>
+<a class="nav-item" href="process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item active" href="FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>프로젝트 2 FAQ</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project2/FAQ.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h1 id="faq">FAQ</h1>
+
+<h3 id="how-much-code-will-i-need-to-write">코드를 얼마나 작성해야 하나요?</h3>
+<p>아래는 <code>git diff --stat</code>으로 만든 레퍼런스 솔루션의 요약입니다. 마지막 줄은 삽입된 줄 수와 삭제된 줄 수의 합계를 보여 줍니다. 변경된 줄은 삽입 1줄과 삭제 1줄로 모두 계산됩니다.</p>
+<p>레퍼런스 솔루션은 가능한 풀이 중 하나일 뿐입니다. 다른 풀이도 많이 가능하며, 그중 상당수는 레퍼런스 솔루션과 크게 다를 수 있습니다. 좋은 풀이가 레퍼런스 솔루션이 수정한 모든 파일을 수정하지 않을 수도 있고, 반대로 레퍼런스 솔루션이 수정하지 않은 파일을 수정할 수도 있습니다. 이 통계에는 추가 요구사항 구현도 포함되어 있습니다. 참고로 약 150줄은 추가 과제와 관련된 코드입니다.</p>
+<pre><code>src/include/threads/thread.h   |  23 ++
+src/include/userprog/syscall.h |   3 +
+src/threads/thread.c           |   5 +
+src/userprog/exception.c       |   4 +
+src/userprog/process.c         | 355 +++++++++++++++++++++++++++++++++++++++++-
+src/userprog/syscall.c         | 429 ++++++++++++++++++++++++++++++++++++++++++-
+6 files changed, 782 insertions(+), 37 deletions(-)
+</code></pre>
+
+<h3 id="the-kernel-always-panics-when-i-run-pintos--p-file-----q"><code>pintos -p file -- -q</code>를 실행하면 커널이 항상 panic합니다.</h3>
+<p>파일 시스템을 <code>pintos -f</code>로 포맷했나요?</p>
+<p>파일 이름이 너무 길지는 않나요? 파일 시스템은 파일 이름을 14자로 제한합니다.</p>
+<p><code>pintos -p ../../examples/echo -- -q</code> 같은 명령은 이 제한을 넘습니다.</p>
+<p>대신 <code>pintos -p ../../examples/echo:echo -- -q</code>를 사용해서 파일을 <code>echo</code>라는 이름으로 넣으세요.</p>
+<p>파일 시스템이 가득 찼나요?</p>
+<p>파일 시스템에 이미 파일이 16개 들어 있나요? 기본 Pintos 파일 시스템은 파일 16개 제한이 있습니다.</p>
+<p>파일 시스템이 너무 단편화되어 해당 파일을 넣을 연속 공간이 부족할 수도 있습니다.</p>
+
+<h3 id="when-i-run-pintos--p-file----file-isnt-copied"><code>pintos -p ../file --</code>를 실행했는데 <code>file</code>이 복사되지 않습니다.</h3>
+<p>기본적으로 파일은 명령에서 참조한 이름 그대로 기록됩니다. 따라서 이 경우 복사된 파일 이름은 <code>../file</code>이 됩니다. 아마 원하는 명령은 <code>pintos -p ../file:file --</code>일 것입니다.</p>
+
+<h3 id="all-my-user-programs-die-with-page-faults">모든 사용자 프로그램이 page fault로 죽습니다.</h3>
+<p>인자 전달을 구현하지 않았거나 올바르게 구현하지 않았을 때 이런 일이 발생합니다. 사용자 프로그램용 기본 C 라이브러리는 스택에서 <code>argv</code>를 읽으려고 합니다. 스택이나 레지스터가 제대로 설정되어 있지 않으면 page fault가 발생합니다.</p>
+
+<h3 id="all-my-user-programs-die-with-system-call">모든 사용자 프로그램이 <code>system call!</code>을 출력하고 죽습니다.</h3>
+<p>다른 동작을 보기 전에 시스템 콜을 구현해야 합니다. 정상적인 프로그램은 거의 항상 최소 하나의 시스템 콜, 보통 <code>exit()</code>, 을 호출하고 대부분은 그보다 더 많이 호출합니다. 특히 <code>printf()</code>는 <code>write</code> 시스템 콜을 호출합니다. 기본 시스템 콜 핸들러는 <code>system call!</code>을 출력하고 프로그램을 종료합니다. 그 전까지는 <code>hex_dump()</code>를 사용해 인자 전달이 올바르게 구현되었는지 확인할 수 있습니다.</p>
+
+<h3 id="how-can-i-disassemble-user-programs">사용자 프로그램을 어떻게 디스어셈블하나요?</h3>
+<p><code>objdump</code> 유틸리티는 사용자 프로그램 전체나 오브젝트 파일을 디스어셈블할 수 있습니다. <code>objdump -d file</code>처럼 실행하세요. 개별 함수를 디스어셈블하려면 GDB의 <code>disassemble</code> 명령을 사용할 수 있습니다.</p>
+
+<h3 id="why-do-many-c-include-files-not-work-in-pintos-programs">왜 많은 C include 파일이 Pintos 프로그램에서 동작하지 않나요?</h3>
+<h3 id="can-i-use-libfoo-in-my-pintos-programs">Pintos 프로그램에서 <code>libfoo</code>를 사용할 수 있나요?</h3>
+<p>제공된 C 라이브러리는 매우 제한적입니다. 실제 운영체제의 C 라이브러리에서 기대하는 많은 기능이 들어 있지 않습니다. C 라이브러리는 I/O와 메모리 할당을 위해 시스템 콜을 수행해야 하므로, 특정 운영체제와 아키텍처에 맞게 만들어져야 합니다. 물론 모든 함수가 시스템 콜을 하는 것은 아니지만, 보통 라이브러리는 하나의 단위로 컴파일됩니다.</p>
+<p>사용하려는 라이브러리는 Pintos가 구현하지 않은 C 라이브러리 기능을 사용할 가능성이 큽니다. Pintos에서 동작하게 만들려면 적어도 어느 정도 포팅 작업이 필요할 것입니다. 특히 Pintos 사용자 프로그램 C 라이브러리에는 <code>malloc()</code> 구현이 없습니다.</p>
+
+<h3 id="how-do-i-compile-new-user-programs">새 사용자 프로그램은 어떻게 컴파일하나요?</h3>
+<p><code>src/examples/Makefile</code>을 수정한 뒤 <code>make</code>를 실행하세요.</p>
+
+<h3 id="can-i-run-user-programs-under-a-debugger">디버거에서 사용자 프로그램을 실행할 수 있나요?</h3>
+<p>가능하지만 몇 가지 제한이 있습니다. <a href="../appendix/debugging_tools.html#gdb">GDB</a>를 참고하세요.</p>
+
+<h3 id="whats-the-difference-between-tidt-and-pidt"><code>tid_t</code>와 <code>pid_t</code>의 차이는 무엇인가요?</h3>
+<p><code>tid_t</code>는 커널 스레드를 식별합니다. 그 커널 스레드는 <code>process_fork()</code>로 만들어져 사용자 프로세스를 실행하고 있을 수도 있고, <code>thread_create()</code>로 만들어져 사용자 프로세스를 실행하지 않을 수도 있습니다. <code>tid_t</code>는 커널에서만 사용하는 데이터 타입입니다.</p>
+<p><code>pid_t</code>는 사용자 프로세스를 식별합니다. 사용자 프로세스와 커널이 <code>exec</code>, <code>wait</code> 시스템 콜에서 사용합니다. <code>tid_t</code>와 <code>pid_t</code>에 어떤 타입을 쓸지는 적절히 선택하면 됩니다. 기본적으로 둘 다 <code>int</code>입니다. 둘을 일대일로 매핑해서 같은 값이 같은 프로세스를 가리키게 할 수도 있고, 더 복잡한 매핑을 사용할 수도 있습니다. 설계 선택에 달려 있습니다.</p>
+
+<h3 id="can-i-just-cast-a-struct-file--to-get-a-file-descriptor"><code>struct file *</code>을 캐스팅해서 파일 디스크립터로 써도 되나요?</h3>
+<h3 id="can-i-just-cast-a-struct-thread--to-a-pidt"><code>struct thread *</code>를 <code>pid_t</code>로 캐스팅해도 되나요?</h3>
+<p>아니요. <code>pid_t</code>와 file descriptor는 포인터 타입보다 작기 때문에, 포인터를 직접 캐스팅해서 안전하게 담을 수 없습니다.</p>
+
+<h3 id="can-i-set-a-maximum-number-of-open-files-per-process">프로세스당 열 수 있는 파일 수에 최댓값을 둬도 되나요?</h3>
+<p>임의의 제한을 두지 않는 편이 좋습니다. 필요하다면 프로세스당 열린 파일 128개 제한을 둘 수 있습니다. 하지만 추가 요구사항을 구현하려면 제한이 없어야 합니다.</p>
+
+<h3 id="what-happens-when-an-open-file-is-removed">열려 있는 파일이 삭제되면 어떻게 되나요?</h3>
+<p>파일에 대해 표준 Unix 의미론을 구현해야 합니다. 즉 어떤 파일이 삭제되더라도, 그 파일에 대한 파일 디스크립터를 가진 모든 프로세스는 그 디스크립터를 계속 사용할 수 있어야 합니다. 따라서 그 파일에서 읽고 쓸 수 있습니다. 파일에는 더 이상 이름이 없고 다른 프로세스가 새로 열 수는 없지만, 그 파일을 참조하는 모든 파일 디스크립터가 닫히거나 머신이 종료될 때까지 파일은 계속 존재합니다.</p>
+
+<h3 id="how-can-i-run-user-programs-that-need-more-than-4-kb-stack-space">4 kB보다 큰 스택 공간이 필요한 사용자 프로그램은 어떻게 실행하나요?</h3>
+<p>각 프로세스에 한 페이지보다 많은 스택 공간을 할당하도록 스택 설정 코드를 수정할 수 있습니다. 다음 프로젝트에서는 더 나은 해결책을 구현하게 됩니다.</p>
+    </article>
+    <nav class="pager">
+<a href="dup.html">이전: 파일 디스크립터 확장 (추가 과제)</a>
+<a href="../project3/introduction.html">다음: 프로젝트 3 소개</a>
+</nav>
+  </main>
+</body>
+</html>

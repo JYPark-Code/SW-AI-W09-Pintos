@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>학습 가이드 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="index.html">소개</a>
+<a class="nav-item" href="introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="introduction/grading.html">채점</a>
+<a class="nav-item" href="introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">읽기 가이드</p>
+        <h1>학습 가이드</h1>
+      </div>
+      <a class="source-link" href="index.html">문서 첫 페이지</a>
+    </header>
+    <article class="doc-body">
+      <h2>읽는 순서</h2>
+      <ol>
+        <li><strong>Introduction</strong>에서 환경, 채점, 윤리 규칙을 먼저 확인합니다.</li>
+        <li><strong>Project 1</strong>은 스레드, 인터럽트, 동기화 원리를 코드와 연결해서 읽습니다.</li>
+        <li><strong>Project 2</strong>는 사용자 프로그램이 커널로 진입하는 경로와 시스템 콜 계약을 중심으로 봅니다.</li>
+        <li><strong>Project 3</strong>은 페이지, 프레임, 보조 페이지 테이블, lazy loading, swap의 관계를 먼저 그려보고 구현합니다.</li>
+      </ol>
+      <h2>용어 번역 기준</h2>
+      <table>
+        <thead><tr><th>원문</th><th>번역</th><th>읽는 포인트</th></tr></thead>
+        <tbody>
+          <tr><td>thread</td><td>스레드</td><td>커널 안에서 스케줄링되는 실행 단위입니다.</td></tr>
+          <tr><td>semaphore / lock / condition variable</td><td>세마포어 / 락 / 조건 변수</td><td>동기화 primitive입니다. 구현보다 사용 규칙을 먼저 잡는 것이 중요합니다.</td></tr>
+          <tr><td>priority donation</td><td>우선순위 기부</td><td>락을 가진 낮은 우선순위 스레드에게 높은 우선순위를 임시로 전달합니다.</td></tr>
+          <tr><td>system call</td><td>시스템 콜</td><td>사용자 프로그램이 커널 기능을 요청하는 ABI 경계입니다.</td></tr>
+          <tr><td>page / frame</td><td>페이지 / 프레임</td><td>가상 메모리 단위와 물리 메모리 단위를 구분해서 읽어야 합니다.</td></tr>
+          <tr><td>supplemental page table</td><td>보조 페이지 테이블</td><td>하드웨어 페이지 테이블에 없는 lazy loading 정보를 커널이 보관하는 구조입니다.</td></tr>
+          <tr><td>eviction / swap</td><td>축출 / 스왑</td><td>물리 프레임이 부족할 때 어떤 페이지를 내보낼지 결정하는 흐름입니다.</td></tr>
+          <tr><td>inode / directory entry</td><td>inode / 디렉터리 엔트리</td><td>파일의 메타데이터와 이름 매핑을 분리해서 봅니다.</td></tr>
+        </tbody>
+      </table>
+      <h2>구현 전 체크</h2>
+      <ul>
+        <li>테스트 하나를 고르고 입력, 기대 출력, 실패 시점부터 역추적합니다.</li>
+        <li>공유 자료구조를 수정하는 함수마다 인터럽트 상태나 락 보유 조건을 적어 둡니다.</li>
+        <li>프로젝트 2 이후에는 사용자 포인터 검증과 자원 해제 경로를 먼저 설계합니다.</li>
+        <li>VM에서는 page fault가 정상 lazy loading인지, 프로세스 종료 대상인지 먼저 분기합니다.</li>
+      </ul>
+    </article>
+  </main>
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>고급 스케줄러 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item active" href="advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>고급 스케줄러</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project1/advanced_scheduler.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h3 id="advanced-scheduler">고급 스케줄러</h3>
+<p><strong>시스템에서 실행되는 작업들의 평균 응답 시간을 줄이기 위해, <a href="#44bsd-scheduler">4.4BSD 스케줄러</a>와 비슷한 다단계 피드백 큐 스케줄러를 구현합니다.</strong></p>
+<p>고급 스케줄러도 우선순위 스케줄러처럼 우선순위를 기준으로 다음에 실행할 스레드를 고릅니다. 하지만 고급 스케줄러는 우선순위 기부를 하지 않습니다. 따라서 고급 스케줄러를 시작하기 전에, 우선순위 기부는 아직 완성되지 않았더라도 우선순위 스케줄러의 기본 동작은 먼저 동작하게 만들어 두는 것을 권장합니다.</p>
+<p>코드는 Pintos가 시작될 때 어떤 스케줄링 정책을 쓸지 선택할 수 있도록 작성해야 합니다. 기본값은 우선순위 스케줄러여야 하지만, <code>-mlfqs</code> 커널 옵션을 주면 4.4BSD 스케줄러를 선택할 수 있어야 합니다. 이 옵션이 전달되면 옵션을 파싱하는 <code>parse_options()</code>에서 <code>threads/thread.h</code>에 선언된 <code>thread_mlfqs</code>가 <code>true</code>로 설정됩니다. 이 파싱은 <code>main()</code> 초반에 일어납니다.</p>
+<p>4.4BSD 스케줄러가 활성화되면 스레드는 더 이상 자기 우선순위를 직접 제어하지 않습니다. <code>thread_create()</code>에 전달되는 우선순위 인자는 무시해야 하고, <code>thread_set_priority()</code> 호출도 무시해야 합니다. <code>thread_get_priority()</code>는 스케줄러가 계산해서 설정한 현재 우선순위를 반환해야 합니다. 고급 스케줄러는 이후 프로젝트에서는 사용하지 않습니다.</p>
+
+<h3 id="44bsd-scheduler">4.4BSD 스케줄러</h3>
+<p>범용 스케줄러의 목표는 스레드마다 다른 스케줄링 요구를 균형 있게 맞추는 것입니다. I/O를 많이 수행하는 스레드는 입력 및 출력 장치가 놀지 않도록 빠른 응답 시간이 필요하지만, CPU 시간은 많이 필요하지 않습니다. 반대로 계산 중심 스레드는 작업을 끝내기 위해 많은 CPU 시간을 받아야 하지만 빠른 응답 시간이 꼭 필요하지는 않습니다. 그 중간에 있는 스레드들도 있습니다. 이런 스레드는 I/O를 하는 구간과 계산을 하는 구간이 번갈아 나타나므로, 시간에 따라 요구가 달라집니다. 잘 설계된 스케줄러는 이런 요구들을 동시에 꽤 잘 만족시킬 수 있습니다.</p>
+<p>프로젝트 1에서는 이 부록에서 설명하는 스케줄러를 구현해야 합니다. 여기서 구현할 스케줄러는 [McKusick]에서 설명한 스케줄러와 비슷하며, 다단계 피드백 큐 스케줄러의 한 예입니다. 이런 스케줄러는 실행 준비가 된 스레드들을 담는 큐를 여러 개 유지합니다. 각 큐는 서로 다른 우선순위의 스레드들을 담습니다. 어느 시점이든 스케줄러는 비어 있지 않은 큐 중 가장 높은 우선순위의 큐에서 스레드를 하나 선택합니다. 가장 높은 우선순위 큐에 여러 스레드가 있으면, 그 스레드들은 "라운드 로빈" 순서로 실행됩니다.</p>
+<p>스케줄러의 여러 데이터는 일정한 수의 타이머 틱이 지난 뒤 갱신되어야 합니다. 어떤 경우든 이 갱신은 일반 커널 스레드가 실행될 기회를 얻기 전에 끝나야 합니다. 그래야 커널 스레드가 새로 증가한 <code>timer_ticks()</code> 값은 보면서 스케줄러 데이터는 예전 값을 보는 일이 생기지 않습니다.</p>
+<p>4.4BSD 스케줄러에는 우선순위 기부가 포함되지 않습니다.</p>
+
+<h4 id="niceness">Niceness</h4>
+<p>스레드 우선순위는 아래에서 설명하는 공식에 따라 스케줄러가 동적으로 정합니다. 다만 각 스레드에는 정수 <code>nice</code> 값도 있습니다. 이 값은 그 스레드가 다른 스레드에게 얼마나 "친절하게" 양보해야 하는지를 나타냅니다. <code>nice</code>가 0이면 스레드 우선순위에 영향을 주지 않습니다. 양수 <code>nice</code>는 최대 20까지 가능하며, 스레드의 우선순위를 낮춰서 원래 받을 수 있었던 CPU 시간 일부를 양보하게 만듭니다. 반대로 음수 <code>nice</code>는 최소 -20까지 가능하며, 다른 스레드가 받을 CPU 시간을 더 가져오는 쪽으로 작용합니다.</p>
+<p>초기 스레드는 <code>nice</code> 값 0으로 시작합니다. 그 밖의 스레드는 부모 스레드의 <code>nice</code> 값을 상속해서 시작합니다. 테스트 프로그램이 사용할 수 있도록 아래 함수들을 구현해야 합니다. <code>threads/thread.c</code>에는 이 함수들의 스켈레톤 정의가 이미 제공되어 있습니다.</p>
+<pre><code class="lang-C">int thread_get_nice (void);
+</code></pre>
+<blockquote>
+<p>현재 스레드의 <code>nice</code> 값을 반환합니다.</p>
+</blockquote>
+<pre><code class="lang-C">int thread_set_nice (int nice);
+</code></pre>
+<blockquote>
+<p>현재 스레드의 <code>nice</code> 값을 새 값으로 설정하고, 그 새 값에 따라 스레드의 우선순위를 다시 계산합니다(<a href="#calculating-priority">우선순위 계산</a> 참고). 현재 실행 중인 스레드가 더 이상 가장 높은 우선순위를 갖지 않게 되면 CPU를 양보합니다.</p>
+</blockquote>
+
+<h4 id="calculating-priority">우선순위 계산</h4>
+<p>이 스케줄러에는 64개의 우선순위가 있으며, 따라서 준비 큐도 64개입니다. 번호는 0(<code>PRI_MIN</code>)부터 63(<code>PRI_MAX</code>)까지입니다. 숫자가 낮을수록 우선순위가 낮습니다. 즉 우선순위 0이 가장 낮고, 우선순위 63이 가장 높습니다. 스레드 우선순위는 스레드가 초기화될 때 처음 계산됩니다. 또한 모든 스레드에 대해 매 네 번째 클록 틱마다 한 번씩 다시 계산됩니다. 두 경우 모두 다음 공식으로 결정됩니다.</p>
+<blockquote>
+<p>priority = PRI_MAX - (recent_cpu / 4) - (nice * 2),</p>
+</blockquote>
+<p>여기서 <code>recent_cpu</code>는 해당 스레드가 최근에 사용한 CPU 시간의 추정값이고, <code>nice</code>는 그 스레드의 <code>nice</code> 값입니다. 결과는 가장 가까운 작은 정수로 내려야 합니다. 즉 소수부를 버립니다. <code>recent_cpu</code>에 붙은 <code>1/4</code> 계수와 <code>nice</code>에 붙은 <code>2</code> 계수는 실제로 잘 동작한다고 알려진 값이지만, 더 깊은 의미가 있는 것은 아닙니다. 계산된 우선순위는 항상 유효한 범위인 <code>PRI_MIN</code>부터 <code>PRI_MAX</code> 사이에 들어가도록 보정해야 합니다.</p>
+<p>이 공식은 최근에 CPU 시간을 받은 스레드가 다음 스케줄링 시점에 다시 CPU를 배정받을 우선순위를 낮춥니다. 이것이 기아 상태를 막는 핵심입니다. 최근에 CPU 시간을 받지 못한 스레드는 <code>recent_cpu</code>가 0이 되므로, <code>nice</code> 값이 아주 높지만 않다면 곧 CPU 시간을 받을 수 있어야 합니다.</p>
+
+<h4 id="calculating-recentcpu"><code>recent_cpu</code> 계산</h4>
+<p><code>recent_cpu</code>는 각 프로세스가 "최근에" 받은 CPU 시간이 얼마나 되는지를 측정해야 합니다. 더 나아가, 오래전 CPU 시간보다 더 최근의 CPU 시간에 더 큰 가중치를 주어야 합니다. 한 가지 방법은 <code>n</code>개의 원소를 가진 배열을 두고, 지난 <code>n</code>초 각각에 받은 CPU 시간을 기록하는 것입니다. 하지만 이 방식은 스레드마다 <code>O(n)</code> 공간이 필요하고, 새 가중 평균을 계산할 때마다 스레드마다 <code>O(n)</code> 시간이 듭니다.</p>
+<p>대신 지수 가중 이동 평균을 사용합니다. 일반적인 형태는 다음과 같습니다.</p>
+<blockquote>
+<p>x(0) = f(0),</p>
+<p>x(t) = ax(t - 1) + (1 - a)f(t),</p>
+<p>a = k/(k + 1),</p>
+</blockquote>
+<p>여기서 <code>x(t)</code>는 정수 시간 <code>t &gt;= 0</code>에서의 이동 평균이고, <code>f(t)</code>는 평균을 내는 대상 함수이며, <code>k &gt; 0</code>는 값이 얼마나 빨리 감소할지를 조절합니다. 이 공식을 몇 단계 펼치면 다음과 같습니다.</p>
+<blockquote>
+<p>x(1) = f(1),</p>
+<p>x(2) = af(1) + f(2),</p>
+<p>...</p>
+<p>x(5) = a^4 * f(1) + a^3 * f(2) + a^2 * f(3) + a * f(4) + f(5).</p>
+</blockquote>
+<p><code>f(t)</code>의 값은 시간 <code>t</code>에서는 가중치 1을 갖고, 시간 <code>t + 1</code>에서는 가중치 <code>a</code>, 시간 <code>t + 2</code>에서는 <code>a^2</code>를 갖는 식으로 줄어듭니다. <code>x(t)</code>를 <code>k</code>와도 연결해 볼 수 있습니다. <code>f(t)</code>의 가중치는 시간 <code>t + k</code>에서 대략 <code>1/e</code>, 시간 <code>t + 2k</code>에서 대략 <code>1/(e^2)</code>가 됩니다. 반대로 보면 <code>f(t)</code>는 시간 <code>t + log_a(w)</code>에서 가중치 <code>w</code>까지 감소합니다.</p>
+<p><code>recent_cpu</code>의 초기값은 처음 만들어지는 스레드에서는 0이고, 그 밖의 새 스레드에서는 부모의 값입니다. 타이머 인터럽트가 발생할 때마다, idle 스레드가 실행 중인 경우를 제외하고 실행 중인 스레드의 <code>recent_cpu</code>만 1 증가합니다. 또한 1초에 한 번, 실행 중이든 준비 상태이든 블록된 상태이든 모든 스레드의 <code>recent_cpu</code> 값을 다음 공식으로 다시 계산합니다.</p>
+<blockquote>
+<p>recent_cpu = (2 * load_avg)/(2 * load_avg + 1) * recent_cpu + nice</p>
+</blockquote>
+<p>여기서 <code>load_avg</code>는 실행 준비가 된 스레드 수의 이동 평균입니다. 아래에서 설명합니다. <code>load_avg</code>가 1이면 평균적으로 하나의 스레드가 CPU를 두고 경쟁한다는 뜻이며, 이때 현재 <code>recent_cpu</code> 값은 <code>log_(2/3) .1 ≈ 6</code>초 후 가중치 <code>.1</code>까지 감소합니다. <code>load_avg</code>가 2이면 가중치 <code>.1</code>까지 감소하는 데 <code>log_(3/4) .1 ≈ 8</code>초가 걸립니다. 결과적으로 <code>recent_cpu</code>는 스레드가 "최근" 받은 CPU 시간의 양을 추정하며, 감소 속도는 CPU를 두고 경쟁하는 스레드 수에 반비례합니다.</p>
+<p>일부 테스트는 <code>recent_cpu</code> 재계산이 시스템 틱 카운터가 정확히 1초의 배수에 도달했을 때, 즉 <code>timer_ticks () % TIMER_FREQ == 0</code>일 때만 수행된다고 가정합니다. 다른 시점에 수행하면 안 됩니다.</p>
+<p><code>recent_cpu</code> 값은 음수 <code>nice</code> 값을 가진 스레드에서 음수가 될 수 있습니다. 음수 <code>recent_cpu</code>를 0으로 고정하지 마세요.</p>
+<p>이 공식은 계산 순서를 신경 써야 할 수 있습니다. 먼저 <code>recent_cpu</code>에 곱할 계수를 계산한 뒤 곱하는 방식을 권장합니다. 일부 학생들은 <code>load_avg</code>와 <code>recent_cpu</code>를 직접 곱하면 오버플로가 날 수 있다고 보고했습니다.</p>
+<p><code>thread_get_recent_cpu()</code>를 구현해야 합니다. <code>threads/thread.c</code>에 스켈레톤이 있습니다.</p>
+<pre><code class="lang-C">int thread_get_recent_cpu (void);
+</code></pre>
+<blockquote>
+<p>현재 스레드의 <code>recent_cpu</code> 값에 100을 곱한 값을 가장 가까운 정수로 반올림해서 반환합니다.</p>
+</blockquote>
+
+<h4 id="calculating-loadavg"><code>load_avg</code> 계산</h4>
+<p>마지막으로, 시스템 load average라고도 부르는 <code>load_avg</code>는 지난 1분 동안 실행 준비가 되어 있었던 스레드 수의 평균을 추정합니다. <code>recent_cpu</code>처럼 지수 가중 이동 평균입니다. 다만 <code>priority</code>와 <code>recent_cpu</code>가 스레드별 값인 것과 달리, <code>load_avg</code>는 시스템 전체에 대한 값입니다. 시스템 부팅 시 0으로 초기화되고, 그 뒤에는 1초에 한 번씩 다음 공식으로 갱신됩니다.</p>
+<blockquote>
+<p>load_avg = (59/60) * load_avg + (1/60) * ready_threads,</p>
+</blockquote>
+<p>여기서 <code>ready_threads</code>는 갱신 시점에 실행 중이거나 실행 준비 상태인 스레드 수입니다. idle 스레드는 포함하지 않습니다.</p>
+<p>일부 테스트의 가정 때문에 <code>load_avg</code>는 시스템 틱 카운터가 정확히 1초의 배수에 도달했을 때, 즉 <code>timer_ticks () % TIMER_FREQ == 0</code>일 때만 갱신해야 합니다. 다른 시점에 갱신하면 안 됩니다. <code>thread_get_load_avg()</code>를 구현해야 하며, <code>threads/thread.c</code>에 스켈레톤이 있습니다.</p>
+<pre><code class="lang-C">int thread_get_load_avg (void)
+</code></pre>
+<blockquote>
+<p>현재 시스템 <code>load_avg</code> 값에 100을 곱한 값을 가장 가까운 정수로 반올림해서 반환합니다.</p>
+</blockquote>
+
+<h4 id="summary">요약</h4>
+<p>다음 공식들은 스케줄러 구현에 필요한 계산을 요약합니다. 이것만으로 스케줄러 요구사항 전체가 설명되는 것은 아닙니다.</p>
+<p>모든 스레드는 직접 제어할 수 있는 -20부터 20까지의 <code>nice</code> 값을 가집니다. 또한 각 스레드는 0(<code>PRI_MIN</code>)부터 63(<code>PRI_MAX</code>)까지의 우선순위를 가지며, 이 우선순위는 매 네 번째 틱마다 다음 공식으로 다시 계산됩니다.</p>
+<blockquote>
+<p>priority = PRI_MAX - (recent_cpu / 4) - (nice * 2)</p>
+</blockquote>
+<p><code>recent_cpu</code>는 스레드가 "최근" 받은 CPU 시간의 양을 측정합니다. 매 타이머 틱마다 실행 중인 스레드의 <code>recent_cpu</code>가 1 증가합니다. 1초에 한 번, 모든 스레드의 <code>recent_cpu</code>는 다음과 같이 갱신됩니다.</p>
+<blockquote>
+<p>recent_cpu = (2 * load_avg) / (2 * load_avg + 1) * recent_cpu + nice</p>
+</blockquote>
+<p><code>load_avg</code>는 지난 1분 동안 실행 준비가 되어 있었던 스레드 수의 평균을 추정합니다. 부팅 시 0으로 초기화되고, 1초에 한 번 다음과 같이 다시 계산됩니다.</p>
+<blockquote>
+<p>load_avg = (59/60) * load_avg + (1/60) * ready_threads</p>
+</blockquote>
+<p>여기서 <code>ready_threads</code>는 갱신 시점에 실행 중이거나 실행 준비 상태인 스레드 수입니다. idle 스레드는 포함하지 않습니다.</p>
+
+<h4 id="fixed-point-real-arithmetic">고정소수점 실수 연산</h4>
+<p>위 공식에서 <code>priority</code>, <code>nice</code>, <code>ready_threads</code>는 정수지만, <code>recent_cpu</code>와 <code>load_avg</code>는 실수입니다. 안타깝게도 Pintos는 커널 안에서 부동소수점 연산을 지원하지 않습니다. 커널을 복잡하게 만들고 느리게 만들기 때문입니다. 실제 커널도 같은 이유로 이런 제한을 두는 경우가 많습니다. 따라서 실수 값에 대한 계산은 정수를 이용해 흉내 내야 합니다. 어렵지는 않지만, 많은 학생들이 방법을 모릅니다. 이 절에서는 기본 개념을 설명합니다.</p>
+<p>핵심 아이디어는 정수의 오른쪽 일부 비트를 소수 부분으로 취급하는 것입니다. 예를 들어 부호 있는 32비트 정수의 하위 14비트를 소수 비트로 정하면, 정수 <code>x</code>는 실수 <code>x/(2^14)</code>를 나타냅니다. 이를 17.14 고정소수점 수 표현이라고 부릅니다. 소수점 앞에 17비트, 소수점 뒤에 14비트, 그리고 부호 비트 1개가 있기 때문입니다. 17.14 형식의 수가 나타낼 수 있는 최대값은 <code>(2^31 - 1)/(2^14) ≈ 131,071.999</code>입니다.</p>
+<p><code>p.q</code> 고정소수점 형식을 사용한다고 하고, <code>f = 2^q</code>라고 합시다. 위 정의에 따르면 정수나 실수를 <code>p.q</code> 형식으로 바꾸려면 <code>f</code>를 곱하면 됩니다. 예를 들어 17.14 형식에서 위 <code>load_avg</code> 계산에 쓰는 분수 <code>59/60</code>은 <code>(59/60)2^14 = 16,110</code>입니다. 고정소수점 값을 다시 정수로 바꾸려면 <code>f</code>로 나눕니다. C의 일반 <code>/</code> 연산자는 0 방향으로 반올림합니다. 즉 양수는 내리고, 음수는 올립니다. 가장 가까운 정수로 반올림하려면 나누기 전에 양수에는 <code>f / 2</code>를 더하고, 음수에는 <code>f / 2</code>를 뺍니다.</p>
+<p>고정소수점 수에 대한 많은 연산은 간단합니다. <code>x</code>와 <code>y</code>가 고정소수점 수이고, <code>n</code>이 정수라고 합시다. 그러면 <code>x</code>와 <code>y</code>의 합은 <code>x + y</code>, 차는 <code>x - y</code>입니다. <code>x</code>와 <code>n</code>의 합은 <code>x + n * f</code>, 차는 <code>x - n * f</code>, 곱은 <code>x * n</code>, 몫은 <code>x / n</code>입니다.</p>
+<p>고정소수점 값 두 개를 곱할 때는 두 가지 문제가 있습니다. 첫째, 결과의 소수점 위치가 <code>q</code>비트만큼 너무 왼쪽에 놓입니다. <code>(59/60)(59/60)</code>은 1보다 조금 작아야 하지만, <code>16,111 * 16,111 = 259,564,321</code>은 <code>2^14 = 16,384</code>보다 훨씬 큽니다. <code>q</code>비트만큼 오른쪽으로 옮기면 <code>259,564,321/2^14 = 15,842</code>, 즉 약 <code>0.97</code>이 되어 올바른 답이 됩니다. 둘째, 최종 답은 표현 가능하더라도 곱셈 중간값이 오버플로될 수 있습니다. 예를 들어 17.14 형식의 <code>64</code>는 <code>64 * 2^14 = 1,048,576</code>이고, 그 제곱 <code>64^2 = 4,096</code>은 17.14 범위 안에 충분히 들어갑니다. 하지만 <code>1,048,576^2 = 2^40</code>은 부호 있는 32비트 정수의 최대값 <code>2^31 - 1</code>보다 큽니다. 쉬운 해결책은 곱셈을 64비트 연산으로 수행하는 것입니다. 그러면 <code>x</code>와 <code>y</code>의 곱은 <code>((int64_t) x) * y / f</code>입니다.</p>
+<p>고정소수점 값 두 개를 나눌 때는 반대 문제가 생깁니다. 소수점 위치가 너무 오른쪽으로 가므로, 나누기 전에 피제수를 <code>q</code>비트만큼 왼쪽으로 옮겨 해결합니다. 왼쪽 시프트는 피제수의 상위 <code>q</code>비트를 버리는데, 이 문제도 64비트로 나눗셈을 수행하면 피할 수 있습니다. 따라서 <code>x</code>를 <code>y</code>로 나눈 몫은 <code>((int64_t) x) * f / y</code>입니다.</p>
+<p>이 절에서는 <code>q</code>비트 시프트 대신 <code>f</code>를 곱하거나 나누는 형태를 일관되게 사용했습니다. 이유는 두 가지입니다. 첫째, 곱셈과 나눗셈에는 C 시프트 연산자에서 종종 헷갈리는 연산자 우선순위 문제가 없습니다. 둘째, 곱셈과 나눗셈은 음수 피연산자에 대해서도 잘 정의되어 있지만, C의 시프트 연산자는 그렇지 않습니다. 구현할 때 이 점을 주의하세요.</p>
+<p>다음 표는 고정소수점 산술 연산을 C에서 어떻게 구현할 수 있는지 요약합니다. 표에서 <code>x</code>와 <code>y</code>는 고정소수점 수이고, <code>n</code>은 정수입니다. 고정소수점 수는 부호 있는 <code>p.q</code> 형식이며 <code>p + q = 31</code>이고, <code>f</code>는 <code>1 &lt;&lt; q</code>입니다.</p>
+<table>
+<thead>
+<tr>
+<th>산술</th>
+<th>C</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>n</code>을 고정소수점으로 변환</td>
+<td><code>n * f</code></td>
+</tr>
+<tr>
+<td><code>x</code>를 정수로 변환(0 방향 반올림)</td>
+<td><code>x / f</code></td>
+</tr>
+<tr>
+<td><code>x</code>를 정수로 변환(가장 가까운 정수로 반올림)</td>
+<td><code>(x + f / 2) / f</code>, <code>x &gt;= 0</code>인 경우</td>
+</tr>
+<tr>
+<td></td>
+<td><code>(x - f / 2) / f</code>, <code>x &lt;= 0</code>인 경우</td>
+</tr>
+<tr>
+<td><code>x</code>와 <code>y</code> 더하기</td>
+<td><code>x + y</code></td>
+</tr>
+<tr>
+<td><code>x</code>에서 <code>y</code> 빼기</td>
+<td><code>x - y</code></td>
+</tr>
+<tr>
+<td><code>x</code>와 <code>n</code> 더하기</td>
+<td><code>x + n * f</code></td>
+</tr>
+<tr>
+<td><code>x</code>에서 <code>n</code> 빼기</td>
+<td><code>x - n * f</code></td>
+</tr>
+<tr>
+<td><code>x</code>에 <code>y</code> 곱하기</td>
+<td><code>((int64_t) x) * y / f</code></td>
+</tr>
+<tr>
+<td><code>x</code>에 <code>n</code> 곱하기</td>
+<td><code>x * n</code></td>
+</tr>
+<tr>
+<td><code>x</code>를 <code>y</code>로 나누기</td>
+<td><code>((int64_t) x) * f / y</code></td>
+</tr>
+<tr>
+<td><code>x</code>를 <code>n</code>으로 나누기</td>
+<td><code>x / n</code></td>
+</tr>
+</tbody>
+</table>
+    </article>
+    <nav class="pager">
+<a href="priority_scheduling.html">이전: 우선순위 스케줄링</a>
+<a href="FAQ.html">다음: 프로젝트 1 FAQ</a>
+</nav>
+  </main>
+</body>
+</html>

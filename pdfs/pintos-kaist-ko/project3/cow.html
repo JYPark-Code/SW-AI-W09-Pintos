@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Copy-on-Write (추가 과제) | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="vm_management.html">메모리 관리</a>
+<a class="nav-item" href="anon.html">익명 페이지</a>
+<a class="nav-item" href="stack_growth.html">스택 증가</a>
+<a class="nav-item" href="memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="swapping.html">스왑 인/아웃</a>
+<a class="nav-item active" href="cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>Copy-on-Write (추가 과제)</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project3/cow.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h2 id="copy-on-write-extra">Copy-on-Write (추가 과제)</h2>
+<p><strong>Pintos에 copy-on-write 메커니즘을 구현합니다.</strong></p>
+<p>copy-on-write는 같은 physical page 인스턴스를 공유해서 복제 작업을 더 빠르게 만드는 자원 관리 기법입니다. 어떤 자원이 여러 프로세스에서 사용된다면, 충돌을 막기 위해 보통 각 프로세스가 그 자원의 자기 복사본을 가져야 합니다. 하지만 그 자원이 수정되지 않고 읽히기만 한다면, 물리 메모리에 여러 복사본을 둘 필요가 없습니다.</p>
+<p>예를 들어 <code>fork</code>를 통해 새 프로세스가 생성된다고 합시다. 자식은 부모의 자원을 자기 가상 주소 공간으로 복제해서 상속해야 합니다. 일반적으로 가상 메모리에 내용을 추가하려면 physical page를 할당하고, frame에 데이터를 쓰고, page table에 virtual-to-physical mapping을 추가해야 합니다. 이 단계들은 꽤 시간이 많이 걸릴 수 있습니다.</p>
+<p>copy-on-write 기법을 사용하면 자원의 새 복사본을 위해 새 physical page를 할당하지 않습니다. 기술적으로는 내용이 이미 물리 메모리에 존재하기 때문입니다. 따라서 자식 프로세스의 page table에 virtual-to-physical mapping만 추가합니다. 이때 virtual address는 자식의 메모리 공간에 있는 주소입니다. 그러면 부모와 자식은 같은 physical page 안의 같은 데이터에 접근합니다. 그래도 둘은 별도의 virtual address space를 통해 여전히 격리되어 있고, 같은 frame을 참조한다는 사실은 OS만 알고 있습니다. 공유 자원의 내용을 어느 한 프로세스가 수정하려고 할 때에만, 그 프로세스를 위해 새 physical page에 별도 복사본을 만듭니다. 따라서 실제 복사 작업은 첫 write까지 지연됩니다.</p>
+<p>즉 OS는 copy-on-write page에 대한 쓰기 시도를 감지할 수 있어야 합니다. 이를 위해 OS는 "write-protect" 메커니즘을 사용합니다. 아이디어는 단순합니다. write access에서 page fault가 나게 만드는 것입니다. memory management system의 지원을 이용해 write-protected page를 쓰기 불가능한 page로 표시하면 쉽게 구현할 수 있습니다.</p>
+<p><strong><code>fork</code>에 대해서만 copy-on-write를 구현하면 됩니다.</strong> 자식 프로세스가 부모 프로세스에서 자원을 상속받을 때, 자식이 그 자원을 수정하려고 하기 전까지는 같은 physical data를 참조할 수 있습니다. <strong>write-protected page는 모두 eviction 후보입니다.</strong></p>
+<p>copy-on-write에 대해서는 기본 테스트 케이스만 제공합니다. 가능한 모든 경우를 고려해야 합니다. 작은 힌트로, file-backed page의 sharing도 구현해야 합니다. 이 추가 과제의 채점은 hidden test case로도 이루어집니다.</p>
+    </article>
+    <nav class="pager">
+<a href="swapping.html">이전: 스왑 인/아웃</a>
+<a href="FAQ.html">다음: 프로젝트 3 FAQ</a>
+</nav>
+  </main>
+</body>
+</html>

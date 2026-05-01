@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>채점 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="getting_started.html">시작하기</a>
+<a class="nav-item active" href="grading.html">채점</a>
+<a class="nav-item" href="legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>채점</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/introduction/grading.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h1 id="grading">채점</h1>
+<p>과제는 테스트 결과를 기준으로 채점합니다.</p>
+<h2 id="testing">테스트</h2>
+<p>테스트 점수는 강사진이 제공하는 테스트를 기준으로 결정됩니다. 각 프로젝트에는 여러 테스트가 있고, 각 테스트 이름은 <code>tests</code>로 시작합니다.</p>
+<p>제출물을 전체적으로 테스트하려면 해당 프로젝트의 <code>build</code> 디렉터리에서 <code>make check</code>를 실행합니다. 이 명령은 각 테스트를 빌드하고 실행한 뒤, 테스트마다 <code>pass</code> 또는 <code>fail</code> 메시지를 출력합니다. 테스트가 실패하면 실패 이유에 대한 세부 정보도 함께 출력합니다. 모든 테스트가 끝나면 결과 요약도 출력됩니다.</p>
+<p>개별 테스트만 따로 실행할 수도 있습니다. 어떤 테스트를 <code>t</code>라고 하면, 테스트 출력은 <code>t.output</code>에 저장되고, 채점 스크립트가 그 출력을 보고 <code>pass</code> 또는 <code>fail</code> 판정을 <code>t.result</code>에 씁니다. 단일 테스트를 실행하고 채점하려면 <code>build</code> 디렉터리에서 해당 <code>.result</code> 파일을 명시적으로 만들면 됩니다. 예를 들어 <code>make tests/threads/alarm-multiple.result</code>처럼 실행합니다.</p>
+<p><code>make</code>가 테스트 결과가 이미 최신이라고 말하지만 다시 실행하고 싶다면, <code>make clean</code>을 실행하거나 해당 <code>.output</code> 파일을 직접 삭제하세요. 기본적으로 각 테스트는 실행 도중이 아니라 완료 시점에만 피드백을 줍니다. 실행 과정을 보고 싶다면 <code>make check VERBOSE=1</code>처럼 make 명령줄에 <code>VERBOSE=1</code>을 지정하면 됩니다.</p>
+<p>모든 테스트와 관련 파일은 <code>pintos/src/tests</code>에 있습니다. 강사진은 제출물을 테스트하기 전에 이 디렉터리의 내용을 깨끗하고 수정되지 않은 원본 테스트로 교체합니다. 따라서 디버깅을 위해 일부 테스트를 수정해 볼 수는 있지만, 실제 채점에는 원본 테스트가 사용됩니다.</p>
+<p>모든 소프트웨어에는 버그가 있으므로 강사진의 테스트에도 결함이 있을 수 있습니다. 테스트 실패가 여러분 코드의 버그가 아니라 테스트 자체의 버그라고 생각한다면 알려 주세요. 확인한 뒤 필요하면 수정합니다.</p>
+<p>다만 테스트 스위트를 공개해 주는 것을 악용해서는 안 됩니다. 코드는 제공된 테스트 케이스만 통과하는 것이 아니라 일반적인 경우에도 올바르게 동작해야 합니다. 예를 들어 실행 중인 테스트 케이스 이름을 보고 커널 동작을 바꾸는 방식은 허용되지 않습니다. 이런 식으로 테스트를 우회하려는 시도는 점수를 받을 수 없습니다. 본인의 풀이가 애매한 영역에 있다고 생각되면 강사진에게 질문하세요.</p>
+<h2 id="submission">제출</h2>
+<p>아카이브 파일을 만드는 명령이 제공됩니다. <code>threads</code>, <code>userprog</code>, <code>vm</code>, <code>filesys</code> 디렉터리가 있는 Pintos 프로젝트 루트 디렉터리로 이동하세요. 그곳에서 <code>TEAM=YOUR_TEAM_NUMBER make archive</code>를 실행합니다. 예를 들어 팀 번호가 5라면 <code>TEAM=5 make archive</code>를 실행합니다. 그러면 같은 디렉터리에 <code>team5.tar.gz</code>가 생성됩니다. 이 아카이브 파일을 제출하면 됩니다.</p>
+<p><strong>중복 제출을 하지 마세요.</strong> 한 팀당 하나의 제출이면 충분합니다.</p>
+    </article>
+    <nav class="pager">
+<a href="getting_started.html">이전: 시작하기</a>
+<a href="legal_and_ethical_issues.html">다음: 법적 및 윤리적 이슈</a>
+</nav>
+  </main>
+</body>
+</html>

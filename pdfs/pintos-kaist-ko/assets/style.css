@@ -1,0 +1,206 @@
+:root {
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --text: #1f2933;
+  --muted: #5f6b7a;
+  --line: #d9dee7;
+  --accent: #1769aa;
+  --accent-soft: #e8f2fb;
+  --code-bg: #111827;
+  --code-text: #e5edf7;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+  line-height: 1.68;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 292px;
+  overflow-y: auto;
+  padding: 24px 18px;
+  background: #202936;
+  color: #eef4fb;
+}
+.brand {
+  font-weight: 750;
+  line-height: 1.25;
+  margin-bottom: 24px;
+  font-size: 19px;
+}
+.brand span {
+  color: #aebbc9;
+  font-size: 13px;
+  font-weight: 500;
+}
+.guide-link,
+.nav-item {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: #d7e2ee;
+  font-size: 14px;
+}
+.guide-link {
+  background: #314156;
+  margin-bottom: 16px;
+  color: white;
+}
+.nav-header {
+  margin: 18px 0 6px;
+  color: #8fbce4;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.nav-item.active,
+.nav-item:hover {
+  background: #314156;
+  color: white;
+  text-decoration: none;
+}
+.content {
+  max-width: 1040px;
+  margin-left: 292px;
+  padding: 42px 56px 72px;
+}
+.page-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+h1, h2, h3, h4 {
+  line-height: 1.32;
+  letter-spacing: 0;
+}
+.page-top h1 {
+  margin: 0;
+  font-size: 34px;
+}
+.source-link {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 14px;
+}
+.notice {
+  margin: 22px 0 28px;
+  padding: 14px 16px;
+  border: 1px solid #c7d9ea;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: #24445f;
+}
+.doc-body {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 32px;
+}
+.doc-body h1 { font-size: 30px; margin-top: 0; }
+.doc-body h2 { font-size: 24px; margin-top: 34px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.doc-body h3 { font-size: 20px; margin-top: 28px; }
+.doc-body h4 { font-size: 17px; margin-top: 24px; }
+.doc-body p, .doc-body ul, .doc-body ol, .doc-body table, .doc-body blockquote { margin: 14px 0; }
+.doc-body li { margin: 6px 0; }
+.doc-body code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  background: #eef1f5;
+  border: 1px solid #dce2ea;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: .92em;
+}
+.doc-body pre {
+  overflow-x: auto;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: 8px;
+  padding: 16px;
+}
+.doc-body pre code {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+}
+.doc-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.doc-body th, .doc-body td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  vertical-align: top;
+}
+.doc-body th { background: #f0f4f8; }
+.doc-body blockquote {
+  border-left: 4px solid #9dbbd8;
+  padding-left: 14px;
+  color: #384658;
+}
+.doc-body img {
+  max-width: 100%;
+  height: auto;
+}
+.pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 28px;
+}
+.pager a {
+  max-width: 48%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+@media (max-width: 900px) {
+  .sidebar {
+    position: static;
+    width: auto;
+    max-height: 360px;
+  }
+  .content {
+    margin-left: 0;
+    padding: 28px 18px 48px;
+  }
+  .page-top {
+    display: block;
+  }
+  .source-link {
+    display: inline-block;
+    margin-top: 14px;
+  }
+  .doc-body {
+    padding: 22px 18px;
+  }
+  .pager {
+    display: block;
+  }
+  .pager a {
+    display: block;
+    max-width: none;
+    margin-top: 10px;
+  }
+}

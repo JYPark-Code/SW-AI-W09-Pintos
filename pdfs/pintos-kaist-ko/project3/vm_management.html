@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>메모리 관리 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="introduction.html">프로젝트 3 소개</a>
+<a class="nav-item active" href="vm_management.html">메모리 관리</a>
+<a class="nav-item" href="anon.html">익명 페이지</a>
+<a class="nav-item" href="stack_growth.html">스택 증가</a>
+<a class="nav-item" href="memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>메모리 관리</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project3/vm_management.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h2 id="memory-management">메모리 관리</h2>
+<p>가상 메모리 시스템을 지원하려면 virtual page와 physical frame을 효과적으로 관리해야 합니다. 즉 어떤 가상 또는 물리 메모리 영역이 사용 중인지, 어떤 목적으로 쓰이는지, 누가 쓰는지 등을 추적해야 합니다. 먼저 supplemental page table을 다루고, 그 다음 physical frame을 다룹니다. 이해를 돕기 위해 여기서는 "page"라는 말은 virtual page를, "frame"이라는 말은 physical page를 뜻하도록 사용합니다.</p>
+
+<h3 id="page-structure-and-operations">Page 구조체와 연산</h3>
+
+<h4 id="struct-page"><code>struct page</code></h4>
+<p><code>include/vm/vm.h</code>에 정의된 page는 가상 메모리의 한 page를 표현하는 구조체입니다. 이 구조체에는 그 page에 대해 알아야 하는 필요한 데이터가 들어 있습니다. 현재 템플릿에서 구조체는 다음과 같습니다.</p>
+<pre><code>struct page {
+  const struct page_operations *operations;
+  void *va;              /* Address in terms of user space */
+  struct frame *frame;   /* Back reference for frame */
+
+  union {
+    struct uninit_page uninit;
+    struct anon_page anon;
+    struct file_page file;
+#ifdef EFILESYS
+    struct page_cache page_cache;
+#endif
+  };
+};
+</code></pre>
+<p>이 구조체는 page operations, virtual address, physical frame을 가집니다. 추가로 union 필드도 있습니다. union은 하나의 메모리 영역에 여러 타입의 데이터를 저장할 수 있게 해 주는 특수한 데이터 타입입니다. union 안에는 여러 멤버가 있지만, 한 번에 하나의 멤버만 값을 가질 수 있습니다. 즉 우리 시스템의 page는 <code>uninit_page</code>, <code>anon_page</code>, <code>file_page</code>, 또는 <code>page_cache</code>가 될 수 있습니다. 예를 들어 어떤 page가 anonymous page라면, 그 <code>struct page</code>는 멤버 중 하나로 <code>struct anon_page anon</code> 필드를 사용합니다. <code>anon_page</code>에는 anonymous page를 위해 보관해야 하는 필요한 정보가 들어갑니다.</p>
+
+<h4 id="page-operations">Page Operations</h4>
+<p>앞서 설명했듯이, 그리고 <code>include/vm/vm.h</code>에 정의되어 있듯이, page는 <code>VM_UNINIT</code>, <code>VM_ANON</code>, 또는 <code>VM_FILE</code>일 수 있습니다. page에는 swap in, swap out, destroy 같은 여러 동작이 필요합니다. 그런데 page 타입마다 이런 동작에 필요한 단계와 작업이 다릅니다. 다시 말해 <code>VM_ANON</code> page와 <code>VM_FILE</code> page는 서로 다른 destroy 함수를 호출해야 합니다. 한 가지 방법은 각 함수에서 <code>switch-case</code> 문으로 타입별 처리를 하는 것입니다. 여기서는 이를 다루기 위해 객체지향 프로그래밍의 "class inheritance" 개념을 도입합니다. C 언어에는 실제로 class나 inheritance가 없지만, Linux 같은 실제 운영체제 코드와 비슷하게 함수 포인터를 사용해 이 개념을 구현합니다.</p>
+<p>함수 포인터는 지금까지 배운 다른 포인터처럼 메모리 안의 함수, 즉 실행 가능한 코드를 가리키는 포인터입니다. 함수 포인터는 런타임 값에 따라 특정 함수를 간단히 호출할 수 있게 해 주므로 유용합니다. 여기서는 코드 수준에서 단순히 <code>destroy(page)</code>를 호출하면 충분하고, 컴파일러는 page 타입에 맞는 함수 포인터를 호출함으로써 적절한 destroy 루틴을 선택합니다.</p>
+<p>page operations를 위한 구조체 <code>struct page_operations</code>는 <code>include/vm/vm.h</code>에 정의되어 있습니다. 이 구조체는 함수 포인터 3개를 담은 함수 테이블이라고 생각하면 됩니다.</p>
+<pre><code>struct page_operations {
+  bool (*swap_in) (struct page *, void *);
+  bool (*swap_out) (struct page *);
+  void (*destroy) (struct page *);
+  enum vm_type type;
+};
+</code></pre>
+<p>이제 <code>page_operation</code> 구조체가 어디에 있는지 봅시다. <code>include/vm/vm.h</code>의 <code>struct page</code>를 보면 <code>operations</code>라는 필드가 있습니다. <code>vm/file.c</code>로 가면 함수 프로토타입들 앞에 <code>file_ops</code>라는 <code>page_operations</code> 구조체가 선언되어 있습니다. 이것이 file-backed page를 위한 함수 포인터 테이블입니다. <code>.destroy</code> 필드에는 같은 파일에 정의된 page 파괴 함수인 <code>file_backed_destroy</code>가 들어 있습니다.</p>
+<p>함수 포인터 인터페이스로 <code>file_backed_destroy</code>가 어떻게 호출되는지 이해해 봅시다. <code>vm/vm.c</code>의 <code>vm_dealloc_page(page)</code>가 호출되었고, 이 page가 file-backed page(<code>VM_FILE</code>)라고 가정합니다. 함수 안에서는 <code>destroy(page)</code>를 호출합니다. <code>destroy(page)</code>는 <code>include/vm/vm.h</code>에 다음 매크로로 정의되어 있습니다.</p>
+<pre><code>#define destroy(page) if ((page)-&gt;operations-&gt;destroy) (page)-&gt;operations-&gt;destroy (page)
+</code></pre>
+<p>즉 destroy 함수를 호출한다는 것은 실제로 <code>(page)-&gt;operations-&gt;destroy(page)</code>를 호출한다는 뜻입니다. 이 destroy 함수는 page 구조체에서 가져옵니다. 해당 page가 <code>VM_FILE</code> page이므로 <code>.destroy</code> 필드는 <code>file_backed_destroy</code>를 가리킵니다. 결과적으로 file-backed page용 destroy 루틴이 실행됩니다.</p>
+
+<h3 id="implement-supplemental-page-table">Supplemental Page Table 구현</h3>
+<p>현재 Pintos에는 메모리의 virtual/physical mapping을 관리하기 위한 page table(<code>pml4</code>)이 있습니다. 하지만 이것만으로는 충분하지 않습니다. 이전 절에서 설명했듯이 page fault와 자원 관리를 처리하려면 각 page에 대한 추가 정보를 저장하는 supplemental page table도 필요합니다. 따라서 프로젝트 3의 첫 작업으로 supplemental page table의 기본 기능을 구현하는 것을 권장합니다.</p>
+<p><code>vm/vm.c</code>에 supplemental page table 관리 함수들을 구현하세요.</p>
+<p>먼저 Pintos에서 supplemental page table을 어떻게 설계할지 결정해야 합니다. 설계를 정한 뒤, 그 설계에 맞춰 아래 세 함수를 구현합니다.</p>
+<pre><code>void supplemental_page_table_init (struct supplemental_page_table *spt);
+</code></pre>
+<blockquote>
+<p>supplemental page table을 초기화합니다. supplemental page table에 어떤 자료구조를 사용할지는 직접 선택할 수 있습니다. 이 함수는 새 프로세스가 시작될 때(<code>userprog/process.c</code>의 <code>initd</code>)와 프로세스가 fork될 때(<code>userprog/process.c</code>의 <code>__do_fork</code>) 호출됩니다.</p>
+</blockquote>
+<pre><code>struct page *spt_find_page (struct supplemental_page_table *spt, void *va);
+</code></pre>
+<blockquote>
+<p>주어진 supplemental page table에서 <code>va</code>에 대응하는 <code>struct page</code>를 찾습니다. 실패하면 <code>NULL</code>을 반환합니다.</p>
+</blockquote>
+<pre><code>bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
+</code></pre>
+<blockquote>
+<p>주어진 supplemental page table에 <code>struct page</code>를 삽입합니다. 이 함수는 해당 virtual address가 주어진 supplemental page table 안에 이미 존재하지 않는지 확인해야 합니다.</p>
+</blockquote>
+
+<h3 id="frame-management">Frame 관리</h3>
+<p>이제 page는 만들어질 때의 메모리 metadata만 들고 있는 것이 아닙니다. 따라서 physical memory를 관리하기 위한 다른 방식이 필요합니다. <code>include/vm/vm.h</code>에는 physical memory를 표현하는 <code>struct frame</code>이 있습니다. 현재 구조체는 다음과 같습니다.</p>
+<pre><code>/* The representation of "frame" */
+struct frame {
+  void *kva;
+  struct page *page;
+};
+</code></pre>
+<p>이 구조체에는 두 필드만 있습니다. <code>kva</code>는 kernel virtual address이고, <code>page</code>는 page 구조체입니다. frame management interface를 구현하면서 필요한 멤버를 더 추가해도 됩니다.</p>
+<p><code>vm/vm.c</code>에 <code>vm_get_frame</code>, <code>vm_claim_page</code>, <code>vm_do_claim_page</code>를 구현하세요.</p>
+<pre><code>static struct frame *vm_get_frame (void);
+</code></pre>
+<blockquote>
+<p><code>palloc_get_page</code>를 호출해서 user pool에서 새 physical page를 얻습니다. user pool에서 page를 성공적으로 얻으면 frame도 할당하고, 그 멤버들을 초기화한 뒤 반환합니다. <code>vm_get_frame</code>을 구현한 뒤에는 모든 user space page(<code>PALLOC_USER</code>)를 이 함수를 통해 할당해야 합니다. 지금은 page allocation이 실패했을 때 swap out을 처리할 필요가 없습니다. 그런 경우는 일단 <code>PANIC("todo")</code>로 표시해 두면 됩니다.</p>
+</blockquote>
+<pre><code>bool vm_do_claim_page (struct page *page);
+</code></pre>
+<blockquote>
+<p>page를 claim합니다. 여기서 claim은 physical frame을 할당한다는 뜻입니다. 먼저 <code>vm_get_frame</code>을 호출해 frame을 얻습니다. 이 부분은 템플릿에 이미 되어 있습니다. 그 다음 MMU를 설정해야 합니다. 즉 page table에 virtual address에서 physical address로 가는 mapping을 추가해야 합니다. 반환값은 이 작업이 성공했는지 여부를 나타내야 합니다.</p>
+</blockquote>
+<pre><code>bool vm_claim_page (void *va);
+</code></pre>
+<blockquote>
+<p><code>va</code>에 해당하는 page를 claim합니다. 먼저 page를 얻은 뒤, 그 page로 <code>vm_do_claim_page</code>를 호출해야 합니다.</p>
+</blockquote>
+    </article>
+    <nav class="pager">
+<a href="introduction.html">이전: 프로젝트 3 소개</a>
+<a href="anon.html">다음: 익명 페이지</a>
+</nav>
+  </main>
+</body>
+</html>

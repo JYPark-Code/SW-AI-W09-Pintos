@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로젝트 2 소개 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item active" href="introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="argument_passing.html">인자 전달</a>
+<a class="nav-item" href="user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="system_call.html">시스템 콜</a>
+<a class="nav-item" href="process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>프로젝트 2 소개</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project2/introduction.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h1 id="project2-user-programs">프로젝트 2: 사용자 프로그램</h1>
+<p>Pintos의 기반 구조와 스레드 패키지에 익숙해졌으니, 이제 사용자 프로그램을 실행할 수 있게 해 주는 시스템 부분을 다룰 차례입니다. 기본 코드는 이미 사용자 프로그램을 로드하고 실행할 수 있지만, 아직 I/O나 상호작용은 불가능합니다. 이 프로젝트에서는 프로그램이 시스템 콜을 통해 OS와 상호작용할 수 있도록 만듭니다. 이번 과제의 주 작업 위치는 <code>userprog</code> 디렉터리지만, 실제로는 Pintos의 거의 모든 부분과 맞닿게 됩니다. 관련 부분은 아래에서 설명합니다.</p>
+<p><strong>프로젝트 2는 제출한 프로젝트 1 구현 위에 만들어야 합니다.</strong> 프로젝트 1의 코드가 프로젝트 2 코드에 직접 영향을 주지는 않더라도, 이 과제는 누적 방식으로 진행되므로 프로젝트 1 테스트도 계속 통과해야 합니다.</p>
+<p>프로젝트 2에는 추가 챌린지도 있습니다. <strong>이 구현은 선택 사항입니다.</strong> 추가 챌린지에는 테스트 케이스를 제외하고 별도의 스켈레톤 코드가 제공되지 않습니다. 설계는 전적으로 구현자가 결정해야 합니다. <strong>추가 요구사항을 제출하고 테스트하려면 <code>userprog/Make.vars</code>를 편집해야 합니다.</strong></p>
+<p>마지막으로, <code>TODO</code>가 없다고 해서 그 코드를 바꿀 필요가 없다는 뜻은 아닙니다. 테스트 코드를 제외하면 프로젝트 2의 어떤 소스 코드든 자유롭게 수정할 수 있습니다.</p>
+
+<h2 id="background">배경</h2>
+<p>지금까지 Pintos에서 실행한 모든 코드는 운영체제 커널의 일부였습니다. 예를 들어 지난 과제의 테스트 코드도 커널의 일부로 실행되었고, 시스템의 특권 영역에 완전히 접근할 수 있었습니다. 운영체제 위에서 사용자 프로그램을 실행하기 시작하면 더 이상 그렇지 않습니다. 이 프로젝트는 그 변화에서 생기는 문제들을 다룹니다.</p>
+<p>Pintos는 동시에 둘 이상의 프로세스를 실행할 수 있게 됩니다. 각 프로세스는 하나의 스레드를 가집니다. 다중 스레드 프로세스는 지원하지 않습니다. 사용자 프로그램은 자기 혼자 전체 머신을 차지하고 있다고 믿고 작성됩니다. 따라서 여러 프로세스를 동시에 로드하고 실행할 때, 이 환상을 유지하려면 메모리, 스케줄링, 그 밖의 상태를 올바르게 관리해야 합니다.</p>
+<p>이전 프로젝트에서는 테스트 코드를 커널에 직접 컴파일했기 때문에, 커널 내부의 특정 함수 인터페이스를 요구할 수밖에 없었습니다. 이제부터는 사용자 프로그램을 실행해서 운영체제를 테스트합니다. 그만큼 구현 자유도가 훨씬 커집니다. 사용자 프로그램 인터페이스가 여기 설명된 명세를 만족해야 한다는 제약은 지켜야 하지만, 그 안에서는 커널 코드를 원하는 방식으로 재구성하거나 다시 작성해도 됩니다. 작성하는 코드는 <code>#ifdef VM</code>으로 둘러싸인 블록 안에 두면 안 됩니다. 그 블록은 프로젝트 3에서 구현할 가상 메모리 하위 시스템을 활성화한 뒤에 포함됩니다. 반대로 코드가 <code>#ifndef VM</code>으로 둘러싸여 있으면, 프로젝트 3에서는 그 코드가 제외됩니다.</p>
+<p><strong>시작하기 전에 부록의 <a href="../appendix/synchronization.html">동기화</a>와 <a href="../appendix/virtual_address.html">가상 주소</a>를 읽는 것을 강하게 권장합니다.</strong></p>
+
+<h3 id="source-files">소스 파일</h3>
+<p>앞으로 작업할 내용을 한눈에 보려면 관련 파일들을 차례로 훑어보는 것이 가장 쉽습니다. <code>userprog</code>에는 파일 수가 많지 않지만, 이번 프로젝트의 핵심 작업 대부분이 여기에 있습니다.</p>
+<ul>
+<li><p><code>process.c</code>, <code>process.h</code></p>
+<p>ELF 바이너리를 로드하고 프로세스를 시작합니다.</p></li>
+<li><p><code>syscall.c</code>, <code>syscall.h</code></p>
+<p>사용자 프로세스가 커널 기능에 접근하려면 시스템 콜을 호출합니다. 이 파일들은 시스템 콜 핸들러의 스켈레톤입니다. 현재는 메시지를 출력하고 사용자 프로세스를 종료하기만 합니다. 이 프로젝트의 두 번째 부분에서 시스템 콜에 필요한 나머지 동작을 구현합니다.</p></li>
+<li><p><code>syscall-entry.S</code></p>
+<p>시스템 콜 핸들러를 시작하기 위한 작은 어셈블리 코드입니다. 이 코드를 이해할 필요는 없습니다.</p></li>
+<li><p><code>exception.c</code>, <code>exception.h</code></p>
+<p>사용자 프로세스가 특권 명령이나 금지된 동작을 수행하면 예외나 fault 형태로 커널에 trap됩니다. 이 파일들은 예외를 처리합니다. 현재 모든 예외는 메시지를 출력하고 프로세스를 종료합니다. 프로젝트 2의 일부 풀이에서는 이 파일의 <code>page_fault()</code>를 수정해야 하지만, 모든 풀이가 그런 것은 아닙니다.</p></li>
+<li><p><code>gdt.c</code>, <code>gdt.h</code></p>
+<p>x86-64는 세그먼트 기반 구조를 가진 아키텍처입니다. Global Descriptor Table(GDT)은 사용 중인 세그먼트를 설명하는 테이블입니다. 이 파일들은 GDT를 설정합니다. 어떤 프로젝트에서도 이 파일들을 수정할 필요는 없습니다. GDT가 어떻게 동작하는지 궁금하다면 코드를 읽어 봐도 됩니다.</p></li>
+<li><p><code>tss.c</code>, <code>tss.h</code></p>
+<p>Task-State Segment(TSS)는 원래 x86 아키텍처의 태스크 전환에 쓰였습니다. 하지만 x86-64에서는 태스크 전환 기능이 더 이상 권장되지 않습니다. 그래도 TSS는 ring 전환 중 스택 포인터를 찾기 위해 여전히 존재합니다.</p>
+<p>즉 사용자 프로세스가 인터럽트 핸들러로 들어올 때, 하드웨어는 커널 스택 포인터를 찾기 위해 TSS를 참조합니다. 어떤 프로젝트에서도 이 파일들을 수정할 필요는 없습니다. TSS가 어떻게 동작하는지 궁금하다면 코드를 읽어 봐도 됩니다.</p></li>
+</ul>
+
+<h3 id="using-the-file-system">파일 시스템 사용</h3>
+<p>이번 프로젝트에서는 파일 시스템 코드와 상호작용해야 합니다. 사용자 프로그램은 파일 시스템에서 로드되고, 구현해야 할 시스템 콜 중 상당수가 파일 시스템을 다루기 때문입니다. 하지만 이 프로젝트의 초점은 파일 시스템이 아니므로, <code>filesys</code> 디렉터리에 단순하지만 완전한 파일 시스템을 제공해 두었습니다. 파일 시스템을 어떻게 써야 하는지, 특히 어떤 제한이 있는지 이해하려면 <code>filesys.h</code>와 <code>file.h</code> 인터페이스를 살펴봐야 합니다.</p>
+<p>이번 프로젝트에서는 파일 시스템 코드를 수정할 필요가 없습니다. 따라서 수정하지 않는 것을 권장합니다. 파일 시스템을 고치기 시작하면 이번 프로젝트의 핵심에서 벗어나기 쉽습니다.</p>
+<p>지금 파일 시스템 루틴을 올바르게 사용해 두면, 나중에 파일 시스템 구현을 개선할 때 훨씬 편해집니다. 그 전까지는 다음 제한을 감수해야 합니다.</p>
+<ul>
+<li>내부 동기화가 없습니다. 동시에 접근하면 서로 간섭합니다. 한 번에 하나의 프로세스만 파일 시스템 코드를 실행하도록 동기화를 사용해야 합니다.</li>
+<li>파일 크기는 생성 시점에 고정됩니다. 루트 디렉터리도 파일로 표현되므로, 생성할 수 있는 파일 수에도 제한이 있습니다.</li>
+<li>파일 데이터는 하나의 extent로 할당됩니다. 즉 한 파일의 데이터는 디스크의 연속된 섹터 범위를 차지해야 합니다. 따라서 파일 시스템을 오래 사용하면 외부 단편화가 심각한 문제가 될 수 있습니다.</li>
+<li>하위 디렉터리가 없습니다.</li>
+<li>파일 이름은 14자로 제한됩니다.</li>
+<li>작업 도중 시스템이 crash되면 디스크가 자동 복구할 수 없는 방식으로 손상될 수 있습니다. 어차피 파일 시스템 복구 도구도 없습니다.</li>
+</ul>
+<p>중요한 기능 하나는 포함되어 있습니다.</p>
+<p><code>filesys_remove()</code>에는 Unix와 비슷한 의미론이 구현되어 있습니다. 즉 어떤 파일이 열린 상태에서 삭제되면, 그 블록들은 즉시 해제되지 않습니다. 마지막으로 그 파일을 열고 있던 스레드가 닫을 때까지, 이미 열어 둔 스레드들은 계속 그 파일에 접근할 수 있습니다. 자세한 내용은 열린 파일 삭제(Removing an Open File)를 참고하세요.</p>
+<p>프로젝트 1에서는 모든 테스트 프로그램이 이미 커널 이미지 안에 들어 있었지만, 이번에는 사용자 공간에서 실행되는 테스트 프로그램을 Pintos 가상 머신 안에 넣어야 합니다. 대부분의 경우 <code>make check</code> 같은 테스트 스크립트가 이 작업을 자동으로 처리하므로 자세히 몰라도 됩니다. 다만 개별 테스트 케이스를 직접 실행하려면 이 과정을 이해해 두는 것이 큰 도움이 됩니다.</p>
+<p>파일을 Pintos 가상 머신에 넣으려면 먼저 파일 시스템 파티션이 있는 시뮬레이션 디스크를 만들 수 있어야 합니다. <code>pintos-mkdisk</code> 프로그램이 이 기능을 제공합니다. <code>userprog/build</code> 디렉터리에서 <code>pintos-mkdisk filesys.dsk 2</code>를 실행하면, 2 MB 크기의 Pintos 파일 시스템 파티션을 담은 <code>filesys.dsk</code>라는 시뮬레이션 디스크가 만들어집니다. 그 다음 <code>pintos</code> 뒤, <code>--</code> 앞에 <code>--fs-disk filesys.dsk</code>를 전달해서 디스크를 지정합니다. 예를 들면 <code>pintos --fs-disk filesys.dsk -- KERNEL_COMMANDS...</code>처럼 사용합니다. <code>--</code>가 필요한 이유는 <code>--fs-disk</code>가 시뮬레이션 커널 옵션이 아니라 <code>pintos</code> 스크립트 옵션이기 때문입니다. 이후 커널 명령줄에 <code>-f -q</code>를 전달해서 파일 시스템 파티션을 포맷합니다. 즉 <code>pintos SCRIPT_COMMANDS -- -f -q</code>처럼 실행합니다. <code>-f</code>는 파일 시스템을 포맷하게 하고, <code>-q</code>는 포맷이 끝나면 Pintos를 종료하게 합니다.</p>
+<p>시뮬레이션 파일 시스템 안팎으로 파일을 복사하는 방법도 필요합니다. <code>pintos -p</code>("put")와 <code>pintos -g</code>("get") 옵션이 이 일을 합니다. <code>file</code>을 Pintos 파일 시스템에 복사하려면 <code>pintos -p file -- -q</code>를 사용합니다. Pintos 파일 시스템 안에서 <code>newname</code>이라는 이름으로 복사하려면 원래 파일명 뒤에 <code>:newname</code>을 붙여 <code>pintos -p file:newname -- -q</code>처럼 실행합니다. VM에서 파일을 꺼내는 명령도 비슷하지만, <code>-p</code> 대신 <code>-g</code>를 사용합니다.</p>
+<p>참고로 이 명령들은 커널 명령줄에 특수 명령 <code>extract</code>와 <code>append</code>를 전달하고, 별도의 시뮬레이션 "scratch" 파티션을 통해 파일을 복사하는 방식으로 동작합니다. 구현 세부가 궁금하다면 <code>pintos</code> 스크립트와 <code>filesys/fsutil.c</code>를 살펴보면 됩니다.</p>
+<p>아래는 파일 시스템 파티션이 있는 디스크를 만들고, 파일 시스템을 포맷하고, 이번 프로젝트의 두 번째 테스트 케이스인 <code>args-single</code> 프로그램을 새 디스크에 복사한 뒤, 인자 <code>onearg</code>를 넘겨 실행하는 과정의 요약입니다. 테스트 케이스는 이미 빌드되어 있고 현재 디렉터리는 <code>userprog/build</code>라고 가정합니다. 아직 인자 전달을 구현하기 전에는 이 예제가 제대로 동작하지 않습니다.</p>
+<pre><code>pintos-mkdisk filesys.dsk 10
+pintos --fs-disk filesys.dsk -p tests/userprog/args-single:args-single -- -q -f run 'args-single onearg'
+</code></pre>
+<p>나중에 사용하거나 확인하기 위해 파일 시스템 디스크를 보관할 필요가 없다면, 네 단계를 하나의 명령으로 합칠 수도 있습니다. <code>--filesys-size=n</code> 옵션은 <code>pintos</code>가 실행되는 동안만 사용할 임시 파일 시스템 파티션을 약 <code>n</code> MB 크기로 만듭니다. Pintos 자동 테스트 스위트는 이 문법을 많이 사용합니다.</p>
+<pre><code>pintos --fs-disk=10 -p tests/userprog/args-single:args-single -- -q -f run 'args-single onearg'
+</code></pre>
+
+<h3 id="how-user-programs-work">사용자 프로그램은 어떻게 동작하나요?</h3>
+<p>Pintos는 메모리에 들어가고, 구현한 시스템 콜만 사용하는 일반 C 프로그램을 실행할 수 있습니다. 특히 이번 프로젝트에서 요구하는 시스템 콜만으로는 메모리 할당을 지원할 수 없으므로 <code>malloc()</code>은 구현할 수 없습니다. 또한 Pintos는 부동소수점 연산을 사용하는 프로그램도 실행할 수 없습니다. 커널이 스레드를 전환할 때 프로세서의 floating-point unit을 저장하고 복원하지 않기 때문입니다.</p>
+<p>Pintos는 <code>userprog/process.c</code>에 제공된 로더를 사용해 ELF 실행 파일을 로드할 수 있습니다. ELF는 Linux, Solaris 등 여러 운영체제에서 오브젝트 파일, 공유 라이브러리, 실행 파일에 사용하는 파일 형식입니다.</p>
+<p>x86-64 ELF 실행 파일을 출력할 수 있는 컴파일러와 링커라면 무엇이든 Pintos용 프로그램을 만드는 데 사용할 수 있습니다. 물론 충분히 사용할 수 있는 컴파일러와 링커는 제공되어 있습니다. 다만 테스트 프로그램을 시뮬레이션 파일 시스템에 복사하기 전까지 Pintos는 유용한 일을 할 수 없다는 점을 바로 알아야 합니다. 다양한 프로그램을 파일 시스템에 복사해야 흥미로운 작업을 해 볼 수 있습니다. 디버깅 중 <code>filesys.dsk</code>가 더 이상 쓸 수 없는 상태로 망가질 때가 있으므로, 깨끗한 기준 파일 시스템 디스크를 만들어 두고 필요할 때 복사해서 쓰는 것도 좋습니다.</p>
+
+<h3 id="virtual-memory-layout">가상 메모리 배치</h3>
+<p>Pintos의 가상 메모리는 사용자 가상 메모리와 커널 가상 메모리 두 영역으로 나뉩니다. 사용자 가상 메모리는 가상 주소 0부터 <code>KERN_BASE</code>까지입니다. <code>KERN_BASE</code>는 <code>include/threads/vaddr.h</code>에 정의되어 있으며 기본값은 <code>0x8004000000</code>입니다. 커널 가상 메모리는 나머지 가상 주소 공간을 차지합니다.</p>
+<p>사용자 가상 메모리는 프로세스별로 다릅니다. 커널이 한 프로세스에서 다른 프로세스로 전환할 때는 프로세서의 page directory base register를 바꿔서 사용자 가상 주소 공간도 함께 전환합니다. <code>thread/mmu.c</code>의 <code>pml4_activate()</code>를 참고하세요. <code>struct thread</code>에는 프로세스의 페이지 테이블을 가리키는 포인터가 들어 있습니다.</p>
+<p>커널 가상 메모리는 전역입니다. 어떤 사용자 프로세스나 커널 스레드가 실행 중이든 항상 같은 방식으로 매핑됩니다. Pintos에서 커널 가상 메모리는 <code>KERN_BASE</code>부터 시작해 물리 메모리와 일대일로 매핑됩니다. 즉 가상 주소 <code>KERN_BASE</code>는 물리 주소 0에 접근하고, 가상 주소 <code>KERN_BASE + 0x1234</code>는 물리 주소 <code>0x1234</code>에 접근합니다. 이 방식은 머신의 물리 메모리 크기까지 이어집니다.</p>
+<p>사용자 프로그램은 자기 자신의 사용자 가상 메모리에만 접근할 수 있습니다. 커널 가상 메모리에 접근하려고 하면 page fault가 발생하고, <code>userprog/exception.c</code>의 <code>page_fault()</code>가 이를 처리한 뒤 해당 프로세스는 종료됩니다. 커널 스레드는 커널 가상 메모리에 접근할 수 있고, 사용자 프로세스가 실행 중이라면 그 실행 중인 프로세스의 사용자 가상 메모리에도 접근할 수 있습니다. 하지만 커널 안에서라도 매핑되지 않은 사용자 가상 주소에 접근하려고 하면 page fault가 발생합니다.</p>
+
+<h3 id="typical-memory-layout">일반적인 메모리 배치</h3>
+<p>개념적으로 각 프로세스는 자기 사용자 가상 메모리를 원하는 대로 배치할 수 있습니다. 실제로는 사용자 가상 메모리가 다음처럼 배치됩니다.</p>
+<pre><code>USER_STACK +----------------------------------+
+           |             user stack           |
+           |                 |                |
+           |                 |                |
+           |                 V                |
+           |           grows downward         |
+           |                                  |
+           |                                  |
+           |                                  |
+           |                                  |
+           |           grows upward           |
+           |                 ^                |
+           |                 |                |
+           |                 |                |
+           +----------------------------------+
+           | uninitialized data segment (BSS) |
+           +----------------------------------+
+           |     initialized data segment     |
+           +----------------------------------+
+           |            code segment          |
+ 0x400000  +----------------------------------+
+           |                                  |
+           |                                  |
+           |                                  |
+           |                                  |
+           |                                  |
+       0   +----------------------------------+
+</code></pre>
+<p>이번 프로젝트에서는 사용자 스택 크기가 고정되어 있지만, 프로젝트 3에서는 스택이 자랄 수 있게 됩니다. 전통적으로 초기화되지 않은 데이터 세그먼트의 크기는 시스템 콜로 조정할 수 있지만, 이번에는 이를 구현할 필요가 없습니다.</p>
+<p>Pintos의 코드 세그먼트는 사용자 가상 주소 <code>0x400000</code>에서 시작합니다. 주소 공간의 맨 아래에서 약 128 MB 떨어진 위치입니다. 이 값은 Ubuntu에서 흔히 쓰이던 값이며, 특별히 깊은 의미가 있는 것은 아닙니다.</p>
+<p>링커는 "linker script"의 지시에 따라 사용자 프로그램의 메모리 배치를 정합니다. 링커 스크립트는 여러 프로그램 세그먼트의 이름과 위치를 링커에게 알려 줍니다. 링커 스크립트에 대해 더 알고 싶다면 <code>info ld</code>로 볼 수 있는 링커 매뉴얼의 "Scripts" 장을 읽어 보세요.</p>
+<p>특정 실행 파일의 배치를 보려면 <code>objdump</code>를 <code>-p</code> 옵션과 함께 실행하세요.</p>
+
+<h3 id="accessing-user-memory">사용자 메모리 접근</h3>
+<p>시스템 콜을 처리하다 보면 커널이 사용자 프로그램이 제공한 포인터를 통해 메모리에 접근해야 하는 경우가 많습니다. 이때 커널은 매우 조심해야 합니다. 사용자가 null 포인터, 매핑되지 않은 가상 메모리를 가리키는 포인터, 또는 커널 가상 주소 공간(<code>KERN_BASE</code> 위쪽)을 가리키는 포인터를 넘길 수 있기 때문입니다. 이런 잘못된 포인터는 커널이나 다른 실행 중인 프로세스에 피해를 주지 않는 방식으로 거부되어야 합니다. 즉 문제를 일으킨 프로세스를 종료하고 그 자원을 해제해야 합니다.</p>
+<p>이를 올바르게 처리하는 합리적인 방법은 적어도 두 가지입니다. 첫 번째 방법은 사용자가 넘긴 포인터의 유효성을 확인한 뒤 역참조하는 것입니다. 이 방식을 선택한다면 <code>thread/mmu.c</code>와 <code>include/threads/vaddr.h</code>의 함수들을 살펴보는 것이 좋습니다. 사용자 메모리 접근을 처리하는 가장 단순한 방법입니다.</p>
+<p>두 번째 방법은 사용자 포인터가 <code>KERN_BASE</code> 아래를 가리키는지만 확인한 뒤 바로 역참조하는 것입니다. 잘못된 사용자 포인터는 "page fault"를 일으키며, <code>userprog/exception.c</code>의 <code>page_fault()</code> 코드를 수정해서 이를 처리할 수 있습니다. 이 기법은 프로세서의 MMU를 활용하므로 보통 더 빠르고, Linux를 포함한 실제 커널에서도 자주 쓰입니다.</p>
+<p>어느 방식을 선택하든 자원이 "누수"되지 않게 해야 합니다. 예를 들어 시스템 콜이 락을 획득했거나 <code>malloc()</code>으로 메모리를 할당했다고 합시다. 그 뒤 잘못된 사용자 포인터를 만나더라도 락을 반드시 해제하거나 메모리 페이지를 해제해야 합니다. 사용자 포인터를 역참조하기 전에 검증하는 방식을 선택했다면 이 처리는 비교적 간단합니다. 반면 잘못된 포인터가 page fault를 일으키게 하는 방식은 처리하기가 더 어렵습니다. 메모리 접근 자체에서 오류 코드를 반환할 방법이 없기 때문입니다. 따라서 후자의 기법을 시도해 보고 싶은 경우를 위해, 다음과 같은 약간의 보조 코드를 제공합니다.</p>
+<pre><code class="lang-C">/* Reads a byte at user virtual address UADDR.
+ * UADDR must be below KERN_BASE.
+ * Returns the byte value if successful, -1 if a segfault
+ * occurred. */
+static int64_t
+get_user (const uint8_t *uaddr) {
+    int64_t result;
+    __asm __volatile (
+    "movabsq $done_get, %0\n"
+    "movzbq %1, %0\n"
+    "done_get:\n"
+    : "=&amp;a" (result) : "m" (*uaddr));
+    return result;
+}
+
+/* Writes BYTE to user address UDST.
+ * UDST must be below KERN_BASE.
+ * Returns true if successful, false if a segfault occurred. */
+static bool
+put_user (uint8_t *udst, uint8_t byte) {
+    int64_t error_code;
+    __asm __volatile (
+    "movabsq $done_put, %0\n"
+    "movb %b2, %1\n"
+    "done_put:\n"
+    : "=&amp;a" (error_code), "=m" (*udst) : "q" (byte));
+    return error_code != -1;
+}
+</code></pre>
+<p>두 함수는 사용자 주소가 이미 <code>KERN_BASE</code> 아래임을 확인했다고 가정합니다. 또한 커널에서 page fault가 발생했을 때 <code>page_fault()</code>가 단순히 <code>rax</code>를 -1로 설정하고, 이전 값을 <code>%rip</code>에 복사하도록 수정되어 있다고 가정합니다.</p>
+    </article>
+    <nav class="pager">
+<a href="../project1/FAQ.html">이전: 프로젝트 1 FAQ</a>
+<a href="argument_passing.html">다음: 인자 전달</a>
+</nav>
+  </main>
+</body>
+</html>

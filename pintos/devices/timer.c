@@ -20,191 +20,248 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+static struct list sleep_list;
+
+static bool wakeup_less(const struct list_elem *a,
+						const struct list_elem *b,
+						void *aux UNUSED);
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
 static intr_handler_func timer_interrupt;
-static bool too_many_loops (unsigned loops);
-static void busy_wait (int64_t loops);
-static void real_time_sleep (int64_t num, int32_t denom);
-// wakeup 순으로 넣기 (최적화)
-static bool cmp_wakeup_tick (const struct list_elem *a, const struct list_elem *b, void *aux);
+static bool too_many_loops(unsigned loops);
+static void busy_wait(int64_t loops);
+static void real_time_sleep(int64_t num, int32_t denom);
 
+static bool
+wakeup_less(const struct list_elem *a,
+			const struct list_elem *b,
+			void *aux UNUSED)
+{
+	const struct thread *ta = list_entry(a, struct thread, elem);
+	const struct thread *tb = list_entry(b, struct thread, elem);
+
+	return ta->wakeup_tick < tb->wakeup_tick || ta->priority > tb->priority;
+}
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
-void
-timer_init (void) {
+void timer_init(void)
+{
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
 	   nearest. */
+	/**
+	 * count = 1193180 / TIMER_FREQ가 원래 의미
+	 * 1193180은 8254 타이머 입력 클럭, TIMER_FREQ는 우리가 원하는 인터럽트 빈도
+	 *
+	 * TIMER_FREQ는 우리가 원하는 인터럽트 빈도
+	 * TIMER / 2 는 반올림 (+50)
+	 */
 	uint16_t count = (1193180 + TIMER_FREQ / 2) / TIMER_FREQ;
 
-	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
-	outb (0x40, count & 0xff);
-	outb (0x40, count >> 8);
+	list_init(&sleep_list);
+	/**
+	 * CPU 레지스터를 직접 바꾸는 함수라기보다 x86의 OUT 명령으로 I/O 포트에 1byte를 쓰는 함수.
+	 */
+	outb(0x43, 0x34); /* CW: counter 0, LSB then MSB, mode 2, binary. */
+	outb(0x40, count & 0xff);
+	outb(0x40, count >> 8);
 
-	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+	/**
+	 * 외부 하드웨어 인터럽트 벡터 0x20이 들어오면 timer_interrupt()를 실행해라
+	 * 타이머는 원래 IRQ 0이라 최종적으로 벡터 0x20에 매핑됨
+	 * 그래서 timer.c에서 이 등록을 해두면, PIT가 틱을 발생시킬 때마다 CPU가 0x20 인터럽트를 받고
+	 * Pintos가 timer_interrupt()를 실행하게 됨
+	 *
+	 * intr_register_ext()느 외부 인터럽트용이라 interrupt.c에서 0x20~0x2f만 허용하고, 핸들러는 인터럽트가
+	 * 꺼진 상태에서 실행되게 등록
+	 * 그래서 타이머 핸들러 안에서는 잠들거나 블록되는 동작을 하면 안됨
+	 */
+	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
-void
-timer_calibrate (void) {
+void timer_calibrate(void)
+{
 	unsigned high_bit, test_bit;
 
-	ASSERT (intr_get_level () == INTR_ON);
-	printf ("Calibrating timer...  ");
+	ASSERT(intr_get_level() == INTR_ON);
+	printf("Calibrating timer...  ");
 
 	/* Approximate loops_per_tick as the largest power-of-two
 	   still less than one timer tick. */
 	loops_per_tick = 1u << 10;
-	while (!too_many_loops (loops_per_tick << 1)) {
+	while (!too_many_loops(loops_per_tick << 1))
+	{
 		loops_per_tick <<= 1;
-		ASSERT (loops_per_tick != 0);
+		ASSERT(loops_per_tick != 0);
 	}
 
 	/* Refine the next 8 bits of loops_per_tick. */
 	high_bit = loops_per_tick;
 	for (test_bit = high_bit >> 1; test_bit != high_bit >> 10; test_bit >>= 1)
-		if (!too_many_loops (high_bit | test_bit))
+		if (!too_many_loops(high_bit | test_bit))
 			loops_per_tick |= test_bit;
 
-	printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
+	printf("%'" PRIu64 " loops/s.\n", (uint64_t)loops_per_tick * TIMER_FREQ);
 }
 
 /* Returns the number of timer ticks since the OS booted. */
+/**
+ * 인터럽트를 끄는 이유는 전역 변수 ticks를 안전하게 읽기 위해
+ * ticks는 타이머 인터럽트가 발생할 때마다 증가하는 전역 변수
+ *
+ * int64_t t = ticks를 읽는 도중에 갑자기 timer interrupt가 발생해서 interrupt handler가 실행되고,
+ * 그 안에서 ticks++ 가 일어날 수 있음
+ */
 int64_t
-timer_ticks (void) {
-	enum intr_level old_level = intr_disable ();
+timer_ticks(void)
+{
+	enum intr_level old_level = intr_disable();
 	int64_t t = ticks;
-	intr_set_level (old_level);
-	barrier ();
+	intr_set_level(old_level);
+	/**
+	 * 컴파일러가 코드를 마음대로 재배치(최적화)하지 못하게 막는 장치
+	 */
+	barrier();
 	return t;
 }
 
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
 int64_t
-timer_elapsed (int64_t then) {
-	return timer_ticks () - then;
+timer_elapsed(int64_t then)
+{
+	return timer_ticks() - then;
 }
 
 /* Suspends execution for approximately TICKS timer ticks. */
-void
-timer_sleep (int64_t ticks) {
-	/*
-	1. ticks가 0 이하이면 바로 종료
-	2. 현재 tick 저장
-	3. 현재 스레드 찾기
-	4. 깨어날 시간 = 현재 tick + sleep할 tick
-	5. 인터럽트 끄기
-	6. sleep_list에 wakeup_tick 기준으로 삽입
-	7. 현재 스레드를 block
-	8. 인터럽트 상태 복구
-	*/
+/*
+void timer_sleep(int64_t ticks)
+{
+	int64_t start = timer_ticks();
 
-	 if (ticks <= 0)
-        return;
+	ASSERT(intr_get_level() == INTR_ON);
+	// 목표 시간 ticks 만큼 지났는지 계속 확인
+	while (timer_elapsed(start) < ticks)
+		// CPU를 다른 스레드에게 넘김
+		thread_yield();
+}
+*/
 
-	int64_t start = timer_ticks ();
+/**
+ * ticks <= 0 이면 즉시 반환
+ * ticks > 0 이면 현재 스레드를 block
+ * timer interrupt 때 깰 시각이 된 스레드를 모두 unblock
+ * busy waiting 대신 sleep queue + block/unblock 방식 사용
+ *
+ * sleep queue + block/unblock이란?
+ * 스레드를 기다리게 만들고, 시간이 되면 깨우는 방식
+ * -> thread 구조체에 wait_time이 필요
+ *
+ * <기존>
+ * while로 틱을 계속 확인하면서
+ * thread_yield()로 현재 스레드를 ready_list 뒤에 넣고
+ * schedule로 다른 스레드를 실행하게 만드는 상태
+ */
+void timer_sleep(int64_t ticks)
+{
+	if (ticks <= 0)
+	{
+		return;
+	}
 
-	ASSERT (intr_get_level () == INTR_ON);
-	
-	struct thread *t = thread_current ();
-    t->wakeup_tick = start + ticks;
+	enum intr_level old_level;
+	struct thread *curr;
+	ASSERT(intr_get_level() == INTR_ON);
 
-    enum intr_level old_level = intr_disable ();
-    // list_push_back (&sleep_list, &t->elem);
-	list_insert_ordered (&sleep_list, &t->elem, cmp_wakeup_tick, NULL);
-    thread_block ();
-    intr_set_level (old_level);
+	old_level = intr_disable();
+	curr = thread_current();
+
+	curr->wakeup_tick = timer_ticks() + ticks;
+	// curr->priority
+	list_insert_ordered(&sleep_list, &curr->elem, wakeup_less, NULL);
+	thread_block();
+
+	intr_set_level(old_level);
+
+	// while (timer_elapsed(start) < ticks)
+	// 	thread_yield();
+	/**
+	 * 1. 호출한 스레드의 실행을, 시간이 최소한 x timer tick만큼 흐를 때까지 중단
+	 * 2. 시스템이 완전히 idle 상태가 아닌 이상, 스레드가 정확히 x tick 뒤에 깨어날 필요 없음
+	 * - 올바른 시간만큼 기다린 후 ready queue에 삽입
+	 */
 }
 
 /* Suspends execution for approximately MS milliseconds. */
-void
-timer_msleep (int64_t ms) {
-	real_time_sleep (ms, 1000);
+void timer_msleep(int64_t ms)
+{
+	real_time_sleep(ms, 1000);
 }
 
 /* Suspends execution for approximately US microseconds. */
-void
-timer_usleep (int64_t us) {
-	real_time_sleep (us, 1000 * 1000);
+void timer_usleep(int64_t us)
+{
+	real_time_sleep(us, 1000 * 1000);
 }
 
 /* Suspends execution for approximately NS nanoseconds. */
-void
-timer_nsleep (int64_t ns) {
-	real_time_sleep (ns, 1000 * 1000 * 1000);
+void timer_nsleep(int64_t ns)
+{
+	real_time_sleep(ns, 1000 * 1000 * 1000);
 }
 
 /* Prints timer statistics. */
-void
-timer_print_stats (void) {
-	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
+void timer_print_stats(void)
+{
+	printf("Timer: %" PRId64 " ticks\n", timer_ticks());
 }
-
+
 /* Timer interrupt handler. */
 static void
-timer_interrupt (struct intr_frame *args UNUSED) {
-	 /* 전역 tick 값을 1 증가시킨다.
-       timer_interrupt는 매 timer tick마다 호출되므로,
-       이 값은 Pintos가 부팅된 이후 흐른 시간을 의미한다. */
+timer_interrupt(struct intr_frame *args UNUSED)
+{
 	ticks++;
-	/* code to add: 
-	   check sleep list and the global tick.
-	   find any threads to wake up,
-	   move them to the ready list if necessary.
-	   update the global tick.	
-	*/
+	/**
+	 * 실제로 인터럽트 컨텍스트에서 에러를 직접 발생시켜보았다.
+	 * 즉, ASSERT(!intr_context())는 인터럽트 컨텍스트인지를 확인하는 여부이다.
+	 */
+	// thread_yield();
 
-	 /* sleep_list의 첫 번째 원소부터 확인한다.
-       sleep_list에는 timer_sleep()에서 BLOCK된 스레드들이 들어 있다. */
-	struct list_elem *e = list_begin (&sleep_list);
+	while (!list_empty(&sleep_list))
+	{
+		struct thread *t = list_entry(list_front(&sleep_list), struct thread, elem);
 
-	/* sleep_list 끝에 도달할 때까지 순회한다. */
-	while (e != list_end (&sleep_list)) {
-		 /* list_elem을 실제 struct thread 포인터로 변환한다. */
-		struct thread *t = list_entry (e, struct thread, elem);
-
-		 /* 현재 tick이 해당 스레드의 wakeup_tick 이상이면
-           이제 깨워야 하는 시점이다. */
-		if (timer_ticks () >= t->wakeup_tick) {
-
-			/* 현재 원소를 sleep_list에서 제거한다.
-               list_remove(e)는 제거된 원소의 다음 원소를 반환하므로,
-               순회 중 삭제해도 다음 위치를 잃지 않는다. */
-			e = list_remove (e);
-
-			/* BLOCK 상태였던 스레드를 READY 상태로 바꾸고
-			ready_list에 넣어 스케줄링 대상이 되게 한다. */
-			thread_unblock (t);
-		} else {
-			/* wake up tick 기준 정렬 덕분에 더 이상 검사할 필요 없어서 종료 */
+		if (t->wakeup_tick > ticks)
 			break;
-		}
+
+		list_pop_front(&sleep_list);
+		thread_unblock(t);
 	}
-	/* 현재 실행 중인 스레드의 tick 사용량을 갱신하고,
-	time slice가 끝났다면 스케줄링이 필요함을 표시한다. */
-	thread_tick ();
+
+	thread_tick();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */
 static bool
-too_many_loops (unsigned loops) {
+too_many_loops(unsigned loops)
+{
 	/* Wait for a timer tick. */
 	int64_t start = ticks;
 	while (ticks == start)
-		barrier ();
+		barrier();
 
 	/* Run LOOPS loops. */
 	start = ticks;
-	busy_wait (loops);
+	busy_wait(loops);
 
 	/* If the tick count changed, we iterated too long. */
-	barrier ();
+	barrier();
 	return start != ticks;
 }
 
@@ -216,14 +273,16 @@ too_many_loops (unsigned loops) {
    differently in different places the results would be difficult
    to predict. */
 static void NO_INLINE
-busy_wait (int64_t loops) {
+busy_wait(int64_t loops)
+{
 	while (loops-- > 0)
-		barrier ();
+		barrier();
 }
 
 /* Sleep for approximately NUM/DENOM seconds. */
 static void
-real_time_sleep (int64_t num, int32_t denom) {
+real_time_sleep(int64_t num, int32_t denom)
+{
 	/* Convert NUM/DENOM seconds into timer ticks, rounding down.
 
 	   (NUM / DENOM) s
@@ -232,33 +291,20 @@ real_time_sleep (int64_t num, int32_t denom) {
 	   */
 	int64_t ticks = num * TIMER_FREQ / denom;
 
-	ASSERT (intr_get_level () == INTR_ON);
-	if (ticks > 0) {
+	ASSERT(intr_get_level() == INTR_ON);
+	if (ticks > 0)
+	{
 		/* We're waiting for at least one full timer tick.  Use
 		   timer_sleep() because it will yield the CPU to other
 		   processes. */
-		timer_sleep (ticks);
-	} else {
+		timer_sleep(ticks);
+	}
+	else
+	{
 		/* Otherwise, use a busy-wait loop for more accurate
 		   sub-tick timing.  We scale the numerator and denominator
 		   down by 1000 to avoid the possibility of overflow. */
-		ASSERT (denom % 1000 == 0);
-		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
+		ASSERT(denom % 1000 == 0);
+		busy_wait(loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 	}
-}
-
-/* sleep_list를 wakeup_tick 기준으로 정렬하기 위한 비교 함수.
-   두 스레드를 비교하여, a의 wakeup_tick이 b보다 작으면 true를 반환한다.
-   즉, 더 빨리 깨어나야 하는 스레드가 리스트 앞쪽에 오도록 한다. (오름차순)*/
-static bool
-cmp_wakeup_tick (const struct list_elem *a,
-                 const struct list_elem *b,
-                 void *aux)
-{
-    (void) aux;
-
-    struct thread *ta = list_entry(a, struct thread, elem);
-    struct thread *tb = list_entry(b, struct thread, elem);
-
-    return ta->wakeup_tick < tb->wakeup_tick;
 }

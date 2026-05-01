@@ -1,0 +1,17 @@
+# 기본
+* text=auto eol=lf
+
+# 절대 깨지면 안되는 것들
+*.sh text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+
+# Pintos utils
+utils/* text eol=lf
+
+# Python
+*.py text eol=lf
+
+# C 파일도 통일 (선택)
+*.c text eol=lf
+*.h text eol=lf

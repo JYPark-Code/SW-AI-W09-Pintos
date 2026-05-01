@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인자 전달 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="introduction.html">프로젝트 2 소개</a>
+<a class="nav-item active" href="argument_passing.html">인자 전달</a>
+<a class="nav-item" href="user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="system_call.html">시스템 콜</a>
+<a class="nav-item" href="process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>인자 전달</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project2/argument_passing.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h3 id="argument-passing">인자 전달</h3>
+<p><strong><code>process_exec()</code>에서 사용자 프로그램의 인자를 설정합니다.</strong></p>
+
+<h4 id="x86-64-calling-convention">x86-64 호출 규약</h4>
+<p>이 절은 Unix의 64비트 x86-64 구현에서 일반 함수 호출에 사용하는 규약 중 중요한 부분을 요약합니다. 간결하게 설명하기 위해 일부 세부 사항은 생략합니다. 더 자세한 내용은 <a href="https://en.wikipedia.org/wiki/X86_calling_conventions#System_V_AMD64_ABI" target="_blank">System V AMD64 ABI</a>를 참고할 수 있습니다.</p>
+<p>호출 규약은 다음과 같이 동작합니다.</p>
+<ol>
+<li>사용자 수준 애플리케이션은 정수 인자를 전달할 때 순서대로 <code>%rdi</code>, <code>%rsi</code>, <code>%rdx</code>, <code>%rcx</code>, <code>%r8</code>, <code>%r9</code> 레지스터를 사용합니다.</li>
+<li>호출자는 다음에 실행할 명령어의 주소, 즉 반환 주소를 스택에 push하고 callee의 첫 명령어로 점프합니다. x86-64의 <code>CALL</code> 명령 하나가 이 두 동작을 수행합니다.</li>
+<li>callee가 실행됩니다.</li>
+<li>callee에 반환 값이 있으면 그 값을 <code>RAX</code> 레지스터에 저장합니다.</li>
+<li>callee는 스택에서 반환 주소를 pop하고, x86-64 <code>RET</code> 명령으로 그 주소가 가리키는 위치로 점프해서 반환합니다.</li>
+</ol>
+<p>세 개의 <code>int</code> 인자를 받는 함수 <code>f()</code>를 생각해 봅시다. <code>f()</code>가 <code>f(1, 2, 3)</code>으로 호출되었다고 할 때, 위 3단계가 시작되는 시점에 callee가 보는 스택 프레임과 레지스터 상태는 아래 예시처럼 됩니다. 초기 스택 주소는 임의의 값입니다.</p>
+<pre><code>                             +----------------+
+stack pointer --&gt; 0x4747fe70 | return address |
+                             +----------------+
+RDI: 0x0000000000000001 | RSI: 0x0000000000000002 | RDX: 0x0000000000000003
+</code></pre>
+
+<h4 id="program-startup-details">프로그램 시작 세부 사항</h4>
+<p>사용자 프로그램용 Pintos C 라이브러리는 <code>lib/user/entry.c</code>의 <code>_start()</code>를 사용자 프로그램의 진입점으로 지정합니다. 이 함수는 <code>main()</code>을 감싸는 래퍼이며, <code>main()</code>이 반환하면 <code>exit()</code>을 호출합니다.</p>
+<pre><code class="lang-C">void
+_start (int argc, char *argv[]) {
+    exit (main (argc, argv));
+}
+</code></pre>
+<p>커널은 사용자 프로그램 실행을 시작하기 전에 초기 함수의 인자들을 레지스터에 넣어야 합니다. 인자는 일반 호출 규약과 같은 방식으로 전달됩니다.</p>
+<p>예제 명령 <code>/bin/ls -l foo bar</code>의 인자를 어떻게 처리할지 생각해 봅시다.</p>
+<ol>
+<li><p>명령을 단어로 나눕니다: <code>/bin/ls</code>, <code>-l</code>, <code>foo</code>, <code>bar</code>.</p></li>
+<li><p>단어들을 스택 맨 위에 놓습니다. 이 단어들은 포인터를 통해 참조될 것이므로, 문자열 자체를 놓는 순서는 중요하지 않습니다.</p></li>
+<li><p>각 문자열의 주소와 null pointer sentinel을 오른쪽에서 왼쪽 순서로 스택에 push합니다. 이것들이 <code>argv</code>의 원소가 됩니다. null pointer sentinel은 C 표준이 요구하는 것처럼 <code>argv[argc]</code>가 null pointer가 되도록 보장합니다. 오른쪽에서 왼쪽으로 넣는 이유는 <code>argv[0]</code>이 가장 낮은 가상 주소에 놓이도록 하기 위해서입니다. 워드 정렬된 접근은 정렬되지 않은 접근보다 빠르므로, 성능을 위해 첫 push 전에 스택 포인터를 8의 배수로 내림 정렬합니다.</p></li>
+<li><p><code>%rsi</code>가 <code>argv</code>, 즉 <code>argv[0]</code>의 주소를 가리키게 하고, <code>%rdi</code>를 <code>argc</code>로 설정합니다.</p></li>
+<li><p>마지막으로 가짜 "return address"를 push합니다. 진입 함수는 실제로 반환하지 않지만, 그 스택 프레임은 다른 함수의 스택 프레임과 같은 구조를 가져야 합니다.</p></li>
+</ol>
+<p>아래 표는 사용자 프로그램이 시작되기 직전의 스택 상태와 관련 레지스터를 보여 줍니다. 스택은 아래쪽으로 자란다는 점에 주의하세요.</p>
+<table>
+<thead>
+<tr>
+<th>Address</th>
+<th>Name</th>
+<th>Data</th>
+<th>Type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x4747fffc</td>
+<td>argv[3][...]</td>
+<td>'bar\0'</td>
+<td>char[4]</td>
+</tr>
+<tr>
+<td>0x4747fff8</td>
+<td>argv[2][...]</td>
+<td>'foo\0'</td>
+<td>char[4]</td>
+</tr>
+<tr>
+<td>0x4747fff5</td>
+<td>argv[1][...]</td>
+<td>'-l\0'</td>
+<td>char[3]</td>
+</tr>
+<tr>
+<td>0x4747ffed</td>
+<td>argv[0][...]</td>
+<td>'/bin/ls\0'</td>
+<td>char[8]</td>
+</tr>
+<tr>
+<td>0x4747ffe8</td>
+<td>word-align</td>
+<td>0</td>
+<td>uint8_t[]</td>
+</tr>
+<tr>
+<td>0x4747ffe0</td>
+<td>argv[4]</td>
+<td>0</td>
+<td>char *</td>
+</tr>
+<tr>
+<td>0x4747ffd8</td>
+<td>argv[3]</td>
+<td>0x4747fffc</td>
+<td>char *</td>
+</tr>
+<tr>
+<td>0x4747ffd0</td>
+<td>argv[2]</td>
+<td>0x4747fff8</td>
+<td>char *</td>
+</tr>
+<tr>
+<td>0x4747ffc8</td>
+<td>argv[1]</td>
+<td>0x4747fff5</td>
+<td>char *</td>
+</tr>
+<tr>
+<td>0x4747ffc0</td>
+<td>argv[0]</td>
+<td>0x4747ffed</td>
+<td>char *</td>
+</tr>
+<tr>
+<td>0x4747ffb8</td>
+<td>return address</td>
+<td>0</td>
+<td>void (*) ()</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>RDI: 4 | RSI: 0x4747ffc0</p>
+</blockquote>
+<p>이 예에서 스택 포인터는 <code>0x4747ffb8</code>로 초기화됩니다. 위에서 보듯이 코드는 <code>include/threads/vaddr.h</code>에 정의된 <code>USER_STACK</code>에서 스택을 시작해야 합니다.</p>
+<p><code>&lt;stdio.h&gt;</code>에 선언된 비표준 함수 <code>hex_dump()</code>는 인자 전달 코드를 디버깅할 때 유용할 수 있습니다.</p>
+
+<h4 id="implement-the-argument-passing">인자 전달 구현</h4>
+<p>현재 <code>process_exec()</code>는 새 프로세스에 인자를 전달하는 기능을 지원하지 않습니다. 이 기능을 구현하려면 <code>process_exec()</code>를 확장해서, 인자를 단순히 프로그램 파일명 하나로 취급하지 말고 공백 기준으로 단어들을 나누게 해야 합니다. 첫 번째 단어는 프로그램 이름이고, 두 번째 단어는 첫 번째 인자, 그 다음 단어는 두 번째 인자입니다. 즉 <code>process_exec("grep foo bar")</code>는 <code>grep</code>을 실행하면서 <code>foo</code>와 <code>bar</code>라는 두 인자를 넘겨야 합니다.</p>
+<p>명령줄 안에서 여러 개의 공백은 하나의 공백과 같습니다. 따라서 공백이 여러 개 들어간 명령도 원래 예제와 동일하게 처리되어야 합니다. 명령줄 인자 길이에는 합리적인 제한을 둘 수 있습니다. 예를 들어 인자들이 한 페이지(4 kB)에 들어갈 때까지만 허용할 수 있습니다. 이 제한과 별개로, <code>pintos</code> 유틸리티가 커널에 전달할 수 있는 명령줄 인자에는 128바이트 제한이 있습니다.</p>
+<p>인자 문자열은 원하는 방식으로 파싱해도 됩니다. 막막하다면 <code>include/lib/string.h</code>에 프로토타입이 있고 <code>lib/string.c</code>에 자세한 주석과 함께 구현된 <code>strtok_r()</code>를 살펴보세요. 프롬프트에서 <code>man strtok_r</code>를 실행해 man page를 봐도 더 많은 정보를 얻을 수 있습니다.</p>
+    </article>
+    <nav class="pager">
+<a href="introduction.html">이전: 프로젝트 2 소개</a>
+<a href="user_memory.html">다음: 사용자 메모리</a>
+</nav>
+  </main>
+</body>
+</html>

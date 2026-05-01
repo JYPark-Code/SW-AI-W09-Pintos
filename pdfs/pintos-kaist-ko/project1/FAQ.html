@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로젝트 1 FAQ | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item active" href="FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>프로젝트 1 FAQ</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project1/FAQ.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h1 id="faq">FAQ</h1>
+
+<h3 id="how-much-code-will-i-need-to-write">코드를 얼마나 작성해야 하나요?</h3>
+<p>아래는 <code>git diff --stat</code>으로 만든 레퍼런스 솔루션의 요약입니다. 마지막 줄은 삽입된 줄 수와 삭제된 줄 수의 합계를 보여 줍니다. 변경된 줄은 삽입 1줄과 삭제 1줄로 모두 계산됩니다.</p>
+<p>레퍼런스 솔루션은 가능한 풀이 중 하나일 뿐입니다. 다른 풀이도 많이 가능하며, 그중 상당수는 레퍼런스 솔루션과 크게 다를 수 있습니다. 좋은 풀이가 레퍼런스 솔루션이 수정한 모든 파일을 수정하지 않을 수도 있고, 반대로 레퍼런스 솔루션이 수정하지 않은 파일을 수정할 수도 있습니다.</p>
+<pre><code>devices/timer.c               |  29 +++++++++++++++++++++++++++++
+include/threads/fixed-point.h |  10 ++++++++++
+include/threads/synch.h       |   4 ++++
+include/threads/thread.h      |  21 +++++++++++++++++++++
+threads/synch.c               | 143 +++++++++++++++++++++++++++++++++++++++++++-
+threads/thread.c              | 135 ++++++++++++++++++++++++++++++++++++++++----
+6 files changed, 330 insertions(+), 12 deletions(-)
+</code></pre>
+<p><code>fixed-point.h</code>는 레퍼런스 솔루션에서 새로 추가한 파일입니다.</p>
+
+<h3 id="how-do-i-update-the-makefiles-when-i-add-a-new-source-file">새 소스 파일을 추가하면 <code>Makefile</code>은 어떻게 갱신하나요?</h3>
+<p><code>.c</code> 파일을 추가하려면 각 하위 디렉터리의 <code>targets.mk</code> 파일을 편집하세요. 새 파일을 <code>dir_SRC</code> 변수에 추가하면 됩니다. 여기서 <code>dir</code>은 해당 <code>targets.mk</code>가 있는 디렉터리 이름입니다. 그 다음 <code>make</code>를 실행하세요. 새 파일이 컴파일되지 않으면 <code>make clean</code>을 실행한 뒤 다시 시도하세요. 새 <code>.h</code> 파일을 추가하는 경우에는 <code>Makefile</code>을 수정할 필요가 없습니다.</p>
+
+<h3 id="what-does-warning-no-previous-prototype-for-func-mean"><code>warning: no previous prototype for func</code>는 무슨 뜻인가요?</h3>
+<p>프로토타입 선언 없이 <code>static</code>이 아닌 함수를 정의했다는 뜻입니다. <code>static</code>이 아닌 함수는 다른 <code>.c</code> 파일에서도 사용할 수 있는 함수이므로, 안전을 위해 그 정의보다 먼저 포함되는 헤더 파일에 프로토타입이 있어야 합니다. 해결하려면 포함 중인 헤더 파일에 프로토타입을 추가하세요. 그 함수가 실제로 다른 <code>.c</code> 파일에서 쓰이지 않는다면 <code>static</code>으로 만들면 됩니다.</p>
+
+<h3 id="what-is-the-interval-between-timer-interrupts">타이머 인터럽트 간격은 얼마인가요?</h3>
+<p>타이머 인터럽트는 초당 <code>TIMER_FREQ</code>번 발생합니다. 이 값은 <code>devices/timer.h</code>를 편집해서 조정할 수 있습니다. 기본값은 100 Hz입니다. 이 값을 바꾸는 것은 권장하지 않습니다. 바꾸면 많은 테스트가 실패할 가능성이 큽니다.</p>
+
+<h3 id="how-long-is-a-time-slice">타임 슬라이스는 얼마나 긴가요?</h3>
+<p>타임 슬라이스 하나는 <code>TIME_SLICE</code> 틱입니다. 이 매크로는 <code>threads/thread.c</code>에 선언되어 있습니다. 기본값은 4틱입니다. 이 값도 바꾸지 않는 것을 권장합니다. 바꾸면 많은 테스트가 실패할 가능성이 큽니다.</p>
+
+<h3 id="how-do-i-run-the-tests">테스트는 어떻게 실행하나요?</h3>
+<p><a href="../introduction/grading.html#testing">테스트</a>를 참고하세요.</p>
+
+<h3 id="why-do-i-get-a-test-failure-in-pass"><code>pass()</code>에서 테스트 실패가 난 것처럼 보이는 이유는 무엇인가요?</h3>
+<p>아마 다음과 비슷한 백트레이스를 보고 있을 것입니다.</p>
+<pre><code>0x8004208810: debug_panic (lib/kernel/debug.c:32)
+0x800420a99f: pass (tests/threads/tests.c:93)
+0x800420bdd3: test_mlfqs_load_1 (...threads/mlfqs-load-1.c:33)
+0x800420a8cf: run_test (tests/threads/tests.c:51)
+0x8004200452: run_task (threads/init.c:283)
+0x8004200536: run_actions (threads/init.c:333)
+0x80042000bb: main (threads/init.c:137)
+</code></pre>
+<p>이것은 백트레이스 프로그램의 헷갈리는 출력일 뿐입니다. 실제로 <code>pass()</code>가 <code>debug_panic()</code>을 호출했다는 뜻은 아닙니다. 실제로는 <code>fail()</code>이 <code>PANIC()</code> 매크로를 통해 <code>debug_panic()</code>을 호출했습니다. GCC는 <code>debug_panic()</code>이 <code>NO_RETURN</code>으로 선언되어 있어서 반환하지 않는다는 사실을 압니다. 그래서 <code>debug_panic()</code>이 반환했을 때 제어를 이어받는 코드를 <code>fail()</code> 안에 넣지 않습니다. 그 결과 스택의 반환 주소가 메모리상에서 <code>fail()</code> 다음에 우연히 배치된 함수의 시작 주소처럼 보일 수 있습니다. 이 경우 그 함수가 <code>pass()</code>입니다. 자세한 내용은 <a href="../appendix/debugging_tools.html#backtraces">백트레이스</a>를 참고하세요.</p>
+
+<h3 id="how-do-interrupts-get-re-enabled-in-the-new-thread-following-schedule"><code>schedule()</code> 이후 새 스레드에서 인터럽트는 어떻게 다시 켜지나요?</h3>
+<p><code>schedule()</code>로 들어오는 모든 경로는 인터럽트를 끕니다. 인터럽트는 결국 다음에 스케줄되는 스레드가 다시 켭니다. 가능한 경우를 살펴봅시다. 새 스레드는 <code>schedule()</code>이 호출한 <code>switch_thread()</code> 안에서 실행 중입니다. <code>schedule()</code>은 몇 가지 함수 중 하나에서 호출됩니다.</p>
+<ul>
+<li><code>thread_exit()</code>: 이런 스레드로 다시 전환할 일은 없으므로 여기서는 중요하지 않습니다.</li>
+<li><code>thread_yield()</code>: <code>schedule()</code>에서 돌아오자마자 인터럽트 레벨을 복원합니다.</li>
+<li><code>thread_block()</code>: 여러 위치에서 호출됩니다.
+  <ul>
+  <li><code>sema_down()</code>: <code>schedule()</code>에서 돌아오자마자 인터럽트 레벨을 복원합니다.</li>
+  <li><code>idle()</code>: 명시적인 어셈블리 <code>STI</code> 명령으로 인터럽트를 켭니다.</li>
+  <li><code>devices/intq.c</code>의 <code>wait()</code>: 호출자가 인터럽트를 다시 켤 책임을 집니다.</li>
+  </ul>
+</li>
+</ul>
+<p>새로 만들어진 스레드가 처음 실행되는 특별한 경우도 있습니다. 이런 스레드는 <code>kernel_thread()</code>에서 첫 동작으로 <code>intr_enable()</code>을 호출합니다. <code>kernel_thread()</code>는 첫 번째 커널 스레드를 제외한 모든 커널 스레드의 호출 스택 맨 아래에 있습니다.</p>
+
+<h3 id="do-i-need-to-account-for-timer-values-overflowing">타이머 값 오버플로를 고려해야 하나요?</h3>
+<p>타이머 값이 오버플로될 가능성은 걱정하지 않아도 됩니다. 타이머 값은 부호 있는 64비트 수로 표현됩니다. 초당 100틱이라고 해도 거의 2,924,712,087년 동안 사용할 수 있습니다.</p>
+
+<h3 id="doesnt-priority-scheduling-lead-to-starvation">우선순위 스케줄링은 기아 상태를 만들지 않나요?</h3>
+<p>맞습니다. 엄격한 우선순위 스케줄링에서는 더 높은 우선순위의 스레드가 실행 가능하면 낮은 우선순위 스레드는 실행되지 못하므로 기아 상태가 생길 수 있습니다. 고급 스케줄러는 스레드 우선순위를 동적으로 바꾸는 메커니즘을 도입합니다. 엄격한 우선순위 스케줄링은 어떤 작업이 처리 시간을 받을지 프로그래머가 더 강하게 제어할 수 있게 해 주므로 실시간 시스템에서는 가치가 있습니다. 높은 우선순위는 보통 시간에 민감한 작업에 배정됩니다. "공정"하지는 않지만, 범용 운영체제와는 다른 문제를 해결합니다.</p>
+
+<h3 id="what-thread-should-run-after-a-lock-has-been-released">락이 해제된 뒤에는 어떤 스레드가 실행되어야 하나요?</h3>
+<p>락이 해제되면 그 락을 기다리던 스레드 중 가장 높은 우선순위의 스레드가 unblock되어 준비 스레드 목록에 들어가야 합니다. 그 다음 스케줄러는 준비 목록에서 가장 높은 우선순위의 스레드를 실행해야 합니다.</p>
+
+<h3 id="if-the-highest-priority-thread-yields-does-it-continue-running">가장 높은 우선순위의 스레드가 yield하면 계속 실행되나요?</h3>
+<p>그렇습니다. 가장 높은 우선순위의 스레드가 하나뿐이라면, 그 스레드는 <code>thread_yield()</code>를 호출하더라도 블록되거나 종료될 때까지 계속 실행됩니다. 같은 최고 우선순위를 가진 스레드가 여러 개라면, <code>thread_yield()</code>는 그 스레드들 사이를 "라운드 로빈" 순서로 전환해야 합니다.</p>
+
+<h3 id="what-happens-to-the-priority-of-a-donating-thread">우선순위를 기부한 스레드의 우선순위는 어떻게 되나요?</h3>
+<p>우선순위 기부는 기부를 받는 스레드의 우선순위만 바꿉니다. 기부한 스레드의 우선순위는 바뀌지 않습니다. 또한 우선순위 기부는 더해지는 방식이 아닙니다. 예를 들어 스레드 A(우선순위 5)가 스레드 B(우선순위 3)에게 기부하면, B의 새 우선순위는 8이 아니라 5입니다.</p>
+
+<h3 id="can-a-threads-priority-change-while-it-is-on-the-ready-queue">스레드가 ready queue에 있는 동안 우선순위가 바뀔 수 있나요?</h3>
+<p>그렇습니다. 락을 보유한 낮은 우선순위의 ready 상태 스레드 L을 생각해 봅시다. 높은 우선순위의 스레드 H가 그 락을 얻으려고 시도하다가 블록되면, H는 ready 상태인 스레드 L에게 자기 우선순위를 기부합니다.</p>
+
+<h3 id="can-a-threads-priority-change-while-it-is-blocked">스레드가 블록되어 있는 동안 우선순위가 바뀔 수 있나요?</h3>
+<p>그렇습니다. 락 L을 획득한 스레드가 어떤 이유로든 블록되어 있는 동안, 더 높은 우선순위의 스레드가 L을 획득하려고 시도하면 우선순위 기부 때문에 그 스레드의 우선순위가 올라갈 수 있습니다. 이 경우는 <code>priority-donate-sema</code> 테스트에서 확인합니다.</p>
+
+<h3 id="can-a-thread-added-to-the-ready-list-preempt-the-processor">ready list에 추가된 스레드가 프로세서를 선점할 수 있나요?</h3>
+<p>그렇습니다. ready list에 추가된 스레드의 우선순위가 현재 실행 중인 스레드보다 높다면, 올바른 동작은 즉시 프로세서를 양보하는 것입니다. 다음 타이머 인터럽트까지 기다리면 안 됩니다. 가장 높은 우선순위의 스레드는 실행 가능해지는 즉시 실행되어야 하며, 현재 실행 중인 스레드가 무엇이든 선점해야 합니다.</p>
+
+<h3 id="how-does-threadsetpriority-affect-a-thread-receiving-donations"><code>thread_set_priority()</code>는 기부를 받는 스레드에 어떤 영향을 주나요?</h3>
+<p>이 함수는 스레드의 기본 우선순위를 설정합니다. 스레드의 유효 우선순위는 새로 설정한 우선순위와 기부받은 가장 높은 우선순위 중 더 높은 값이 됩니다. 기부가 해제되면 스레드의 우선순위는 이 함수 호출로 설정한 값이 됩니다. 이 동작은 <code>priority-donate-lower</code> 테스트에서 확인합니다.</p>
+
+<h3 id="doubled-test-names-in-output-make-them-fail">출력에 테스트 이름이 두 번 찍히면 테스트가 실패합니다.</h3>
+<p>다음처럼 일부 테스트 이름이 중복되어 보이는 출력을 보고 있다고 가정해 봅시다.</p>
+<pre><code>(alarm-priority) begin
+(alarm-priority) (alarm-priority) Thread priority 30 woke up.
+Thread priority 29 woke up.
+(alarm-priority) Thread priority 28 woke up.
+</code></pre>
+<p>두 스레드의 출력이 서로 섞인 것입니다. 한 스레드는 <code>(alarm-priority) Thread priority 29 woke up.\n</code>을 출력하고 있고, 다른 스레드는 <code>(alarm-priority) Thread priority 30 woke up.\n</code>을 출력하고 있는데, 첫 번째 스레드가 출력 도중 두 번째 스레드에게 선점된 상황입니다. 이 문제는 우선순위 스케줄러에 버그가 있음을 나타냅니다. 우선순위 30인 스레드가 아직 할 일이 있는데 우선순위 29인 스레드가 실행될 수 없어야 하기 때문입니다. 보통 Pintos 커널의 <code>printf()</code> 구현은 <code>printf</code> 호출 동안 콘솔 락을 잡았다가 나중에 풀어서 출력이 섞이는 것을 막으려고 합니다. 하지만 테스트 이름, 예를 들어 <code>(alarm-priority)</code>, 과 그 뒤의 메시지는 두 번의 <code>printf</code> 호출로 출력됩니다. 그 결과 콘솔 락도 두 번 획득되고 두 번 해제됩니다.</p>
+
+<h3 id="how-does-priority-donation-interact-with-the-advanced-scheduler">우선순위 기부는 고급 스케줄러와 어떻게 상호작용하나요?</h3>
+<p>상호작용할 필요가 없습니다. 우선순위 기부와 고급 스케줄러를 동시에 테스트하지는 않습니다.</p>
+
+<h3 id="can-i-use-one-queue-instead-of-64-queues">64개의 큐 대신 큐 하나만 써도 되나요?</h3>
+<p>그렇습니다. 일반적으로 구현은 설명과 달라도 됩니다. 동작만 같으면 됩니다.</p>
+
+<h3 id="some-scheduler-tests-fail-and-i-dont-understand-why-help">일부 스케줄러 테스트가 실패하는데 이유를 모르겠습니다. 어떻게 해야 하나요?</h3>
+<p>구현이 고급 스케줄러 테스트 일부에서 이유를 알 수 없게 실패한다면 다음을 시도해 보세요.</p>
+<ul>
+<li>실패하는 테스트의 소스 파일을 읽고, 무슨 일이 일어나는지 이해했는지 확인하세요. 각 테스트 파일 맨 위에는 테스트의 목적과 예상 결과를 설명하는 주석이 있습니다.</li>
+<li>고정소수점 산술 루틴과, 스케줄러 루틴에서 그 루틴을 사용하는 방식을 다시 확인하세요.</li>
+<li>타이머 인터럽트 안에서 구현이 얼마나 많은 일을 하는지 살펴보세요. 타이머 인터럽트 핸들러가 너무 오래 걸리면, 인터럽트가 선점한 스레드의 타이머 틱 대부분을 빼앗게 됩니다. 제어가 그 스레드로 돌아와도 다음 타이머 인터럽트가 오기 전까지 실제로는 많은 일을 하지 못합니다. 그런데도 그 스레드는 실제로 쓴 것보다 훨씬 많은 CPU 시간을 쓴 것으로 계산됩니다. 그러면 중단된 스레드의 <code>recent_cpu</code> 값이 올라가고, 그 결과 우선순위가 낮아집니다. 이는 스케줄링 결정을 바꿀 수 있습니다. 또한 load average도 올라갑니다.</li>
+</ul>
+    </article>
+    <nav class="pager">
+<a href="advanced_scheduler.html">이전: 고급 스케줄러</a>
+<a href="../project2/introduction.html">다음: 프로젝트 2 소개</a>
+</nav>
+  </main>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>익명 페이지 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="vm_management.html">메모리 관리</a>
+<a class="nav-item active" href="anon.html">익명 페이지</a>
+<a class="nav-item" href="stack_growth.html">스택 증가</a>
+<a class="nav-item" href="memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>익명 페이지</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project3/anon.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h2 id="anonymous-page">Anonymous Page</h2>
+<p>이 부분에서는 디스크 기반 이미지가 없는 page, 즉 anonymous page를 구현합니다.</p>
+<p>anonymous mapping에는 backing file이나 device가 없습니다. file-backed page와 달리 이름이 붙은 파일 출처가 없기 때문에 anonymous라고 부릅니다. anonymous page는 stack이나 heap처럼 실행 파일에서 사용됩니다.</p>
+<p>anonymous page를 설명하기 위한 구조체로 <code>include/vm/anon.h</code>의 <code>anon_page</code>가 있습니다. 현재는 비어 있지만, 구현하면서 anonymous page에 필요한 정보나 상태를 저장할 멤버를 추가할 수 있습니다. 또한 page의 공통 정보를 담는 <code>include/vm/page.h</code>의 <code>struct page</code>도 참고하세요. anonymous page의 경우 page 구조체 안에 <code>struct anon_page anon</code>이 포함됩니다.</p>
+
+<h3 id="page-initialization-with-lazy-loading">Lazy Loading을 이용한 Page 초기화</h3>
+<p>lazy loading은 메모리 로딩을 실제로 필요해지는 시점까지 미루는 설계입니다. page는 할당됩니다. 즉 그에 대응하는 <code>struct page</code>는 존재합니다. 하지만 아직 전용 physical frame은 없고, page의 실제 내용도 로드되지 않았습니다. 내용은 정말 필요해졌을 때만 로드되며, 그 시점은 page fault로 알려집니다.</p>
+<p>page 타입이 세 가지이므로 초기화 루틴도 page 타입마다 다릅니다. 아래 절에서 다시 설명하겠지만, 여기서는 page 초기화 흐름을 큰 그림으로 설명합니다. 커널이 새 page 요청을 받으면 먼저 <code>vm_alloc_page_with_initializer</code>가 호출됩니다. initializer는 새 page 구조체를 할당하고 page 타입에 맞는 initializer를 설정한 뒤 사용자 프로그램으로 제어를 돌려줍니다. 사용자 프로그램이 실행되다가 어느 시점에 아직 내용이 없는 page에 접근하면 page fault가 발생합니다. fault 처리 과정에서 <code>uninit_initialize</code>가 호출되고, 앞서 설정해 둔 initializer를 호출합니다. anonymous page의 initializer는 <code>anon_initializer</code>이고, file-backed page의 initializer는 <code>file_backed_initializer</code>입니다.</p>
+<p>page의 생명주기는 대략 <code>initialize -&gt; (page_fault -&gt; lazy-load -&gt; swap-in -&gt; swap-out -&gt; ...) -&gt; destroy</code> 형태가 될 수 있습니다. 생명주기 전환마다 필요한 절차는 page 타입, 즉 <code>VM_TYPE</code>에 따라 다릅니다. 앞 문단은 초기화 과정의 예입니다. 이번 프로젝트에서는 각 page 타입에 대해 이런 전환 과정을 구현합니다.</p>
+
+<h3 id="lazy-loading-for-executable">실행 파일을 위한 Lazy Loading</h3>
+<p>lazy loading에서는 프로세스 실행이 시작될 때 당장 필요한 메모리 부분만 주 메모리에 올립니다. 바이너리 이미지 전체를 한 번에 메모리에 올리는 eager loading과 비교하면 오버헤드를 줄일 수 있습니다.</p>
+<p>lazy loading을 지원하기 위해 <code>include/vm/vm.h</code>에 <code>VM_UNINIT</code>이라는 page 타입을 도입합니다. 모든 page는 처음에 <code>VM_UNINIT</code> page로 생성됩니다. 초기화되지 않은 page를 위한 page 구조체인 <code>struct uninit_page</code>도 <code>include/vm/uninit.h</code>에 제공됩니다. uninitialized page를 만들고, 초기화하고, 파괴하는 함수들은 <code>include/vm/uninit.c</code>에서 찾을 수 있습니다. 나중에 이 함수들을 완성해야 합니다.</p>
+<p>page fault가 발생하면 <code>userprog/exception.c</code>의 page fault handler인 <code>page_fault</code>가 <code>vm/vm.c</code>의 <code>vm_try_handle_fault</code>로 제어를 넘깁니다. 이 함수는 먼저 처리 가능한 page fault인지 확인합니다. 처리할 수 없는 잘못된 fault라면 프로세스를 종료해야 합니다. 처리 가능한 fault라면 page에 필요한 내용을 로드한 뒤 사용자 프로그램으로 제어를 돌려줍니다.</p>
+<p>처리 가능한 page fault에는 lazy-loaded page, swapped-out page, write-protected page가 있습니다. write-protected page는 <a href="cow.html">Copy-on-Write (추가 과제)</a>에서 다룹니다. 지금은 첫 번째 경우, lazy-loaded page만 생각하면 됩니다. lazy loading을 위한 page fault라면 커널은 앞서 <code>vm_alloc_page_with_initializer</code>에서 설정한 initializer 중 하나를 호출해 segment를 lazy load합니다. <code>userprog/process.c</code>의 <code>lazy_load_segment</code>를 구현해야 합니다.</p>
+<p><code>vm_alloc_page_with_initializer()</code>를 구현하세요. 전달된 <code>vm_type</code>에 따라 적절한 initializer를 가져오고, 그것과 함께 <code>uninit_new</code>를 호출해야 합니다.</p>
+<pre><code>bool vm_alloc_page_with_initializer (enum vm_type type, void *va,
+        bool writable, vm_initializer *init, void *aux);
+</code></pre>
+<blockquote>
+<p>주어진 타입의 uninitialized page를 만듭니다. uninit page의 <code>swap_in</code> handler는 타입에 따라 page를 자동으로 초기화하고, 주어진 <code>AUX</code>와 함께 <code>INIT</code>을 호출합니다. page 구조체를 얻은 뒤에는 그 page를 프로세스의 supplemental page table에 삽입하세요. <code>vm.h</code>에 정의된 <code>VM_TYPE</code> 매크로를 사용하면 편리할 수 있습니다.</p>
+</blockquote>
+<p>page fault handler는 호출 체인을 따라가고, <code>swap_in</code>을 호출했을 때 최종적으로 <code>uninit_initialize</code>에 도달합니다. 이 함수의 완성된 구현은 제공되어 있습니다. 다만 설계에 따라 <code>uninit_initialize</code>를 수정해야 할 수도 있습니다.</p>
+<pre><code>static bool uninit_initialize (struct page *page, void *kva);
+</code></pre>
+<blockquote>
+<p>첫 fault에서 page를 초기화합니다. 템플릿 코드는 먼저 <code>vm_initializer</code>와 <code>aux</code>를 가져오고, 함수 포인터를 통해 해당 <code>page_initializer</code>를 호출합니다. 설계에 따라 이 함수를 수정해야 할 수 있습니다.</p>
+</blockquote>
+<p>필요에 따라 <code>vm/anon.c</code>의 <code>vm_anon_init</code>과 <code>anon_initializer</code>를 수정할 수 있습니다.</p>
+<pre><code>void vm_anon_init (void);
+</code></pre>
+<blockquote>
+<p>anonymous page subsystem을 초기화합니다. 이 함수 안에서 anonymous page와 관련된 어떤 설정이든 할 수 있습니다.</p>
+</blockquote>
+<pre><code>bool anon_initializer (struct page *page,enum vm_type type, void *kva);
+</code></pre>
+<blockquote>
+<p>이 함수는 먼저 <code>page-&gt;operations</code>에 anonymous page용 handler들을 설정합니다. 현재 비어 있는 <code>anon_page</code>에 필요한 정보를 갱신해야 할 수도 있습니다. 이 함수는 anonymous page, 즉 <code>VM_ANON</code>의 initializer로 사용됩니다.</p>
+</blockquote>
+<p><code>userprog/process.c</code>에 <code>load_segment</code>와 <code>lazy_load_segment</code>를 구현하세요. 실행 파일에서 segment를 로드하는 기능을 구현합니다. 이 모든 page는 lazy하게 로드되어야 합니다. 즉 커널이 해당 page에 대한 page fault를 가로챘을 때만 로드되어야 합니다.</p>
+<p>프로그램 로더의 핵심인 <code>userprog/process.c</code>의 <code>load_segment</code> 안쪽 loop를 수정해야 합니다. loop를 한 번 돌 때마다 <code>vm_alloc_page_with_initializer</code>를 호출해서 pending page object를 만듭니다. 실제 segment가 파일에서 로드되는 시점은 page fault가 발생했을 때입니다.</p>
+<pre><code>static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
+        uint32_t read_bytes, uint32_t zero_bytes, bool writable);
+</code></pre>
+<blockquote>
+<p>현재 코드는 main loop 안에서 파일에서 읽을 바이트 수와 0으로 채울 바이트 수를 계산합니다. 그 다음 <code>vm_alloc_page_with_initializer</code>를 호출해서 pending object를 만듭니다. <code>vm_alloc_page_with_initializer</code>에 넘길 <code>aux</code> 인자로 보조 값을 설정해야 합니다. 바이너리 로딩에 필요한 정보를 담는 구조체를 하나 만드는 것이 좋을 수 있습니다.</p>
+</blockquote>
+<pre><code>static bool lazy_load_segment (struct page *page, void *aux);
+</code></pre>
+<blockquote>
+<p><code>load_segment</code>에서 <code>vm_alloc_page_with_initializer</code>의 네 번째 인자로 <code>lazy_load_segment</code>가 전달되는 것을 봤을 것입니다. 이 함수는 실행 파일 page의 initializer이며 page fault가 발생했을 때 호출됩니다. 인자로 <code>struct page</code>와 <code>aux</code>를 받습니다. <code>aux</code>는 <code>load_segment</code>에서 설정한 정보입니다. 이 정보를 사용해 segment를 읽어 올 파일을 찾고, 최종적으로 segment를 메모리에 읽어 와야 합니다.</p>
+</blockquote>
+<p><code>userprog/process.c</code>의 <code>setup_stack</code>도 새 메모리 관리 시스템에 맞게 조정해야 합니다. 첫 번째 stack page는 lazy하게 할당할 필요가 없습니다. load 시점에 command line arguments와 함께 할당하고 초기화하면 되며, fault가 날 때까지 기다릴 필요가 없습니다. stack을 식별할 방법이 필요할 수 있습니다. <code>vm/vm.h</code>의 <code>vm_type</code> 보조 marker, 예를 들어 <code>VM_MARKER_0</code>를 사용해서 page를 표시할 수 있습니다.</p>
+<p>마지막으로 <code>vm_try_handle_fault</code> 함수를 수정해서 fault가 난 주소에 대응하는 page 구조체를 supplemental page table에서 <code>spt_find_page</code>로 찾고, 그 fault를 해결하도록 만드세요.</p>
+<p>위 요구사항을 모두 구현하면 <code>fork</code>를 제외한 프로젝트 2의 모든 테스트가 통과해야 합니다.</p>
+
+<h3 id="supplemental-page-table-revisit">Supplemental Page Table 다시 보기</h3>
+<p>이제 copy와 clean up 연산을 지원하기 위해 supplemental page table interface를 다시 살펴봅니다. 이 연산들은 프로세스를 만들 때, 더 구체적으로는 child process를 생성할 때와 프로세스를 파괴할 때 필요합니다. 자세한 내용은 아래에 설명합니다. 이 시점에서 supplemental page table을 다시 다루는 이유는 앞에서 구현한 초기화 함수들을 여기서 사용할 수 있기 때문입니다.</p>
+<p><code>vm/vm.c</code>에 <code>supplemental_page_table_copy</code>와 <code>supplemental_page_table_kill</code>을 구현하세요.</p>
+<pre><code>bool supplemental_page_table_copy (struct supplemental_page_table *dst,
+    struct supplemental_page_table *src);
+</code></pre>
+<blockquote>
+<p><code>src</code>의 supplemental page table을 <code>dst</code>로 복사합니다. 자식이 부모의 실행 context를 상속해야 할 때, 즉 <code>fork()</code>에서 사용됩니다. <code>src</code>의 supplemental page table 안에 있는 각 page를 순회하면서 <code>dst</code>의 supplemental page table에 정확한 복사본 entry를 만들어야 합니다. uninit page를 할당하고 곧바로 claim해야 합니다.</p>
+</blockquote>
+<pre><code>void supplemental_page_table_kill (struct supplemental_page_table *spt);
+</code></pre>
+<blockquote>
+<p>supplemental page table이 보유하던 모든 자원을 해제합니다. 이 함수는 프로세스가 exit할 때(<code>userprog/process.c</code>의 <code>process_exit()</code>) 호출됩니다. page entry들을 순회하면서 table 안의 page들에 대해 <code>destroy(page)</code>를 호출해야 합니다. 이 함수 안에서는 실제 page table(<code>pml4</code>)과 physical memory(<code>palloc</code>으로 할당된 메모리)를 걱정할 필요가 없습니다. 호출자가 supplemental page table 정리가 끝난 뒤 그것들을 정리합니다.</p>
+</blockquote>
+
+<h3 id="page-cleanup">Page 정리</h3>
+<p><code>vm/uninit.c</code>의 <code>uninit_destroy</code>와 <code>vm/anon.c</code>의 <code>anon_destroy</code>를 구현하세요. 이것들은 uninitialized page의 destroy operation을 위한 handler입니다. uninitialized page는 다른 page object로 변환되지만, 프로세스가 exit할 때 아직 uninit page가 남아 있을 수도 있습니다.</p>
+<pre><code>static void uninit_destroy (struct page *page);
+</code></pre>
+<blockquote>
+<p>page 구조체가 보유하던 자원을 해제합니다. page의 VM 타입을 확인해서 그에 맞게 처리하는 것이 좋을 수 있습니다.</p>
+</blockquote>
+<p>지금은 anonymous page만 처리하면 됩니다. 나중에 file-backed page를 정리하기 위해 이 함수를 다시 살펴보게 됩니다.</p>
+<pre><code>static void anon_destroy (struct page *page);
+</code></pre>
+<blockquote>
+<p>anonymous page가 보유하던 자원을 해제합니다. page 구조체 자체를 명시적으로 해제할 필요는 없습니다. 호출자가 해제해야 합니다.</p>
+</blockquote>
+<p>이제 프로젝트 2의 모든 테스트가 통과해야 합니다.</p>
+    </article>
+    <nav class="pager">
+<a href="vm_management.html">이전: 메모리 관리</a>
+<a href="stack_growth.html">다음: 스택 증가</a>
+</nav>
+  </main>
+</body>
+</html>

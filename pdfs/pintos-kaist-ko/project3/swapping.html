@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>스왑 인/아웃 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="vm_management.html">메모리 관리</a>
+<a class="nav-item" href="anon.html">익명 페이지</a>
+<a class="nav-item" href="stack_growth.html">스택 증가</a>
+<a class="nav-item" href="memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item active" href="swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>스왑 인/아웃</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project3/swapping.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h2 id="swap-inout">Swap In/Out</h2>
+<p>memory swapping은 물리 메모리 사용을 극대화하기 위한 메모리 회수 기법입니다. 주 메모리의 frame이 모두 할당되면 시스템은 사용자 프로그램의 추가 메모리 할당 요청을 더 이상 처리할 수 없습니다. 한 가지 해결책은 현재 사용되지 않는 memory frame을 디스크로 swap out하는 것입니다. 이렇게 하면 일부 메모리 자원이 비워져 다른 애플리케이션이 사용할 수 있습니다.</p>
+<p>swapping은 운영체제가 수행합니다. 시스템이 메모리가 부족한 상태에서 메모리 할당 요청을 받으면, swap disk로 내보낼 page를 선택합니다. 그런 다음 memory frame의 정확한 상태를 디스크에 복사합니다. 프로세스가 swap out된 page에 접근하려고 하면, OS는 그 page의 정확한 내용을 다시 메모리로 가져와 복구합니다.</p>
+<p>eviction 대상으로 선택되는 page는 anonymous page일 수도 있고 file-backed page일 수도 있습니다. 이 절에서는 두 경우를 각각 처리합니다.</p>
+<p>모든 swapping 연산은 명시적으로 직접 호출되지 않고 함수 포인터를 통해 호출됩니다. 이 함수 포인터들은 <code>struct page_operations</code>의 멤버이며, 각 page initializer에서 그 page의 operations로 등록됩니다.</p>
+
+<h3 id="anonymous-page">Anonymous Page</h3>
+<p><strong><code>vm/anon.c</code>의 <code>vm_anon_init</code>과 <code>anon_initializer</code>를 수정하세요.</strong> anonymous page에는 backing storage가 없습니다. anonymous page의 swapping을 지원하기 위해 swap disk라는 임시 backing storage를 제공합니다. anonymous page의 swap을 구현할 때 이 swap disk를 사용합니다.</p>
+<pre><code class="lang-C">void vm_anon_init (void);
+</code></pre>
+<blockquote>
+<p>이 함수에서는 swap disk를 설정해야 합니다. 또한 swap disk에서 비어 있는 영역과 사용 중인 영역을 관리할 자료구조가 필요합니다. swap 영역도 <code>PGSIZE</code>(4096바이트) 단위로 관리됩니다.</p>
+</blockquote>
+<pre><code class="lang-C">bool anon_initializer (struct page *page, enum vm_type type, void *kva);
+</code></pre>
+<blockquote>
+<p>anonymous page의 initializer입니다. swapping을 지원하려면 <code>anon_page</code>에 정보를 추가해야 합니다.</p>
+</blockquote>
+<p>이제 anonymous page swapping을 지원하기 위해 <code>vm/anon.c</code>에 <code>anon_swap_in</code>과 <code>anon_swap_out</code>을 구현하세요. 어떤 page가 swap in되려면 먼저 swap out되어 있어야 하므로, <code>anon_swap_in</code>보다 <code>anon_swap_out</code>을 먼저 구현하는 편이 좋을 수 있습니다. 데이터 내용을 swap disk로 옮기고, 안전하게 다시 메모리로 가져와야 합니다.</p>
+<pre><code class="lang-C">static bool anon_swap_in (struct page *page, void *kva);
+</code></pre>
+<blockquote>
+<p>swap disk에서 데이터 내용을 읽어 메모리로 가져와 anonymous page를 swap in합니다. 데이터가 swap disk의 어디에 있는지는 page가 swap out될 때 page 구조체 안에 저장되어 있어야 합니다. swap table도 갱신해야 한다는 점을 기억하세요. <a href="introduction.html#managing-the-swap-table">Swap Table 관리</a>를 참고하세요.</p>
+</blockquote>
+<pre><code class="lang-C">static bool anon_swap_out (struct page *page);
+</code></pre>
+<blockquote>
+<p>메모리의 내용을 디스크로 복사해서 anonymous page를 swap out합니다. 먼저 swap table을 사용해 디스크에서 빈 swap slot을 찾고, 그 slot에 page 데이터 한 페이지를 복사합니다. 데이터의 위치는 page 구조체에 저장해야 합니다. 디스크에 더 이상 빈 slot이 없으면 커널을 panic시킬 수 있습니다.</p>
+</blockquote>
+
+<h3 id="file-mapped-page">File-Mapped Page</h3>
+<p>file-backed page의 내용은 파일에서 오므로, mmap된 파일 자체를 backing store로 사용해야 합니다. 즉 file-backed page를 evict하면 그 page는 자신이 mapping된 파일에 다시 기록됩니다. <code>vm/file.c</code>에 <code>file_backed_swap_in</code>과 <code>file_backed_swap_out</code>을 구현하세요. 설계에 따라 <code>file_backed_init</code>과 <code>file_initializer</code>를 수정할 수도 있습니다.</p>
+<pre><code class="lang-C">static bool file_backed_swap_in (struct page *page, void *kva);
+</code></pre>
+<blockquote>
+<p>파일에서 내용을 읽어 <code>kva</code>의 page로 swap in합니다. 파일 시스템과 동기화해야 합니다.</p>
+</blockquote>
+<pre><code class="lang-C">static bool file_backed_swap_out (struct page *page);
+</code></pre>
+<blockquote>
+<p>page의 내용을 파일에 다시 써서 swap out합니다. 먼저 page가 dirty인지 확인하는 것이 좋습니다. dirty가 아니라면 파일의 내용을 수정할 필요가 없습니다. page를 swap out한 뒤에는 그 page의 dirty bit를 끄는 것을 잊지 마세요.</p>
+</blockquote>
+    </article>
+    <nav class="pager">
+<a href="memory_mapped_files.html">이전: 메모리 매핑 파일</a>
+<a href="cow.html">다음: Copy-on-Write (추가 과제)</a>
+</nav>
+  </main>
+</body>
+</html>

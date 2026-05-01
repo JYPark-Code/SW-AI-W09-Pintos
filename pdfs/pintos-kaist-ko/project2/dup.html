@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>파일 디스크립터 확장 (추가 과제) | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item" href="../project1/introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="../project1/alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="../project1/priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="../project1/advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="../project1/FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="argument_passing.html">인자 전달</a>
+<a class="nav-item" href="user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="system_call.html">시스템 콜</a>
+<a class="nav-item" href="process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item active" href="dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>파일 디스크립터 확장 (추가 과제)</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project2/dup.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h2 id="extend-file-descriptor-extra">파일 디스크립터 확장 (추가 과제)</h2>
+<p><strong>Pintos가 Linux처럼 <code>stdin</code>, <code>stdout</code> 닫기와 <code>dup2</code> 시스템 콜을 지원하도록 만듭니다.</strong></p>
+<p>현재 Pintos 구현에서는 <code>stdin</code>과 <code>stdout</code>의 fd를 닫는 것이 금지되어 있습니다. 이 추가 점수 요구사항에서는 먼저 Linux와 같이 사용자가 <code>stdin</code>과 <code>stdout</code>을 닫을 수 있게 해야 합니다. 즉 <code>stdin</code>을 닫으면 프로세스는 더 이상 입력을 읽지 않아야 하고, <code>stdout</code>을 닫으면 프로세스는 아무것도 출력하지 않아야 합니다.</p>
+<p>다음으로 <code>dup2</code> 시스템 콜을 구현합니다.</p>
+<hr>
+<pre><code class="lang-C">int dup2(int oldfd, int newfd);
+</code></pre>
+<blockquote>
+<p><code>dup2()</code> 시스템 콜은 파일 디스크립터 <code>oldfd</code>의 복사본을 만들되, 그 복사본의 파일 디스크립터 번호를 <code>newfd</code>로 지정합니다. 성공하면 <code>newfd</code>를 반환합니다. <code>newfd</code>가 이미 열려 있었다면, 재사용되기 전에 조용히 닫힙니다.</p>
+<p>다음 사항에 주의하세요.</p>
+<ul>
+<li><p><code>oldfd</code>가 유효한 파일 디스크립터가 아니면 호출은 실패하고 -1을 반환합니다. 이 경우 <code>newfd</code>는 닫히지 않습니다.</p></li>
+<li><p><code>oldfd</code>가 유효한 파일 디스크립터이고 <code>newfd</code>가 <code>oldfd</code>와 같은 값이면, <code>dup2()</code>는 아무 일도 하지 않고 <code>newfd</code>를 반환합니다.</p></li>
+</ul>
+<p>이 시스템 콜이 성공적으로 반환된 뒤에는 기존 파일 디스크립터와 새 파일 디스크립터를 서로 바꿔 사용할 수 있습니다. 둘은 서로 다른 파일 디스크립터이지만 같은 open file description을 참조하므로 파일 offset과 status flag를 공유합니다. 예를 들어 한 디스크립터에서 <code>seek</code>를 사용해 파일 offset을 바꾸면, 다른 디스크립터의 offset도 함께 바뀝니다.</p>
+</blockquote>
+<p><code>dup</code>된 파일 디스크립터는 <code>fork</code> 이후에도 그 의미를 유지해야 합니다.</p>
+<p><strong>추가 점수를 받으려면 추가 과제의 모든 테스트 케이스를 통과해야 합니다. 전부 통과하지 못하면 점수를 받지 못합니다.</strong></p>
+    </article>
+    <nav class="pager">
+<a href="deny_write.html">이전: 실행 파일 쓰기 거부</a>
+<a href="FAQ.html">다음: 프로젝트 2 FAQ</a>
+</nav>
+  </main>
+</body>
+</html>

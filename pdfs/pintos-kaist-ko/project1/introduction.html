@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로젝트 1 소개 | Pintos KAIST 한국어</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pintos KAIST<br><span>한국어 로컬 문서</span></div>
+    <nav><a class="guide-link" href="../guide.html">학습 가이드</a>
+<div class="nav-header">시작하기</div>
+<a class="nav-item" href="../index.html">소개</a>
+<a class="nav-item" href="../introduction/getting_started.html">시작하기</a>
+<a class="nav-item" href="../introduction/grading.html">채점</a>
+<a class="nav-item" href="../introduction/legal_and_ethical_issues.html">법적 및 윤리적 이슈</a>
+<div class="nav-header">프로젝트 1: 스레드</div>
+<a class="nav-item active" href="introduction.html">프로젝트 1 소개</a>
+<a class="nav-item" href="alarm_clock.html">알람 시계</a>
+<a class="nav-item" href="priority_scheduling.html">우선순위 스케줄링</a>
+<a class="nav-item" href="advanced_scheduler.html">고급 스케줄러</a>
+<a class="nav-item" href="FAQ.html">프로젝트 1 FAQ</a>
+<div class="nav-header">프로젝트 2: 사용자 프로그램</div>
+<a class="nav-item" href="../project2/introduction.html">프로젝트 2 소개</a>
+<a class="nav-item" href="../project2/argument_passing.html">인자 전달</a>
+<a class="nav-item" href="../project2/user_memory.html">사용자 메모리</a>
+<a class="nav-item" href="../project2/system_call.html">시스템 콜</a>
+<a class="nav-item" href="../project2/process_termination.html">프로세스 종료 메시지</a>
+<a class="nav-item" href="../project2/deny_write.html">실행 파일 쓰기 거부</a>
+<a class="nav-item" href="../project2/dup.html">파일 디스크립터 확장 (추가 과제)</a>
+<a class="nav-item" href="../project2/FAQ.html">프로젝트 2 FAQ</a>
+<div class="nav-header">프로젝트 3: 가상 메모리</div>
+<a class="nav-item" href="../project3/introduction.html">프로젝트 3 소개</a>
+<a class="nav-item" href="../project3/vm_management.html">메모리 관리</a>
+<a class="nav-item" href="../project3/anon.html">익명 페이지</a>
+<a class="nav-item" href="../project3/stack_growth.html">스택 증가</a>
+<a class="nav-item" href="../project3/memory_mapped_files.html">메모리 매핑 파일</a>
+<a class="nav-item" href="../project3/swapping.html">스왑 인/아웃</a>
+<a class="nav-item" href="../project3/cow.html">Copy-on-Write (추가 과제)</a>
+<a class="nav-item" href="../project3/FAQ.html">프로젝트 3 FAQ</a>
+<div class="nav-header">부록</div>
+<a class="nav-item" href="../appendix/threads.html">부록: 스레드</a>
+<a class="nav-item" href="../appendix/synchronization.html">부록: 동기화</a>
+<a class="nav-item" href="../appendix/memory_allocation.html">부록: 메모리 할당</a>
+<a class="nav-item" href="../appendix/virtual_address.html">부록: 가상 주소</a>
+<a class="nav-item" href="../appendix/page_table.html">부록: 페이지 테이블</a>
+<a class="nav-item" href="../appendix/debugging_tools.html">부록: 디버깅 도구</a>
+<a class="nav-item" href="../appendix/development_tools.html">부록: 개발 도구</a>
+<a class="nav-item" href="../appendix/hash_table.html">부록: 해시 테이블</a></nav>
+  </aside>
+  <main class="content">
+    <header class="page-top">
+      <div>
+        <p class="eyebrow">원문 번역본</p>
+        <h1>프로젝트 1 소개</h1>
+      </div>
+      <a class="source-link" href="https://casys-kaist.github.io/pintos-kaist/project1/introduction.html">원문 보기</a>
+    </header>
+    <div class="notice">
+      KAIST Pintos GitBook 원문을 한국어로 옮긴 로컬 읽기본입니다.
+      코드, 명령어, 함수명, 파일명은 의도적으로 원문 형태를 최대한 유지했습니다.
+      의미가 애매한 부분은 원문 링크와 함께 확인하세요.
+    </div>
+    <article class="doc-body">
+<h1 id="project1-threads">Project 1: 스레드</h1>
+<p>이번 과제에서는 최소한의 기능만 갖춘 스레드 시스템이 제공됩니다. 여러분의 일은 이 시스템의 기능을 확장하면서 동기화 문제를 더 잘 이해하는 것입니다. 이 과제에서는 대부분 <code>threads</code> 디렉터리에서 작업하고, 일부는 <code>devices</code> 디렉터리에서 작업합니다. 컴파일은 <code>threads</code> 디렉터리에서 해야 합니다. 이 프로젝트 설명을 읽기 전에 최소한 <a href="../appendix/synchronization.html">동기화</a> 자료는 읽어 두어야 합니다.</p>
+<h2 id="background">배경</h2>
+<h3 id="understanding-threads">스레드 이해</h3>
+<p>첫 단계는 초기 스레드 시스템의 코드를 읽고 이해하는 것입니다. Pintos에는 이미 스레드 생성, 스레드 종료, 스레드 간 전환을 위한 스케줄러, 그리고 동기화 primitive가 구현되어 있습니다. 동기화 primitive에는 semaphore, lock, condition variable, optimization barrier가 포함됩니다.</p>
+<p>이 코드 중 일부는 처음 보면 다소 신비롭게 보일 수 있습니다. 아직 <a href="../index.html">소개</a>에서 설명한 기본 시스템을 컴파일하고 실행해 보지 않았다면 지금 해 보세요. 소스 코드 일부를 읽고 실제로 무슨 일이 일어나는지 확인할 수 있습니다. 예를 들어 거의 아무 곳에나 <code>printf()</code> 호출을 추가하고 다시 컴파일한 뒤 실행하면, 어떤 일이 어떤 순서로 일어나는지 볼 수 있습니다. 커널을 디버거에서 실행하고, 관심 있는 지점에 breakpoint를 걸고, 코드를 한 단계씩 실행하면서 데이터 등을 조사할 수도 있습니다.</p>
+<p>스레드가 생성되면 스케줄될 수 있는 새 context가 만들어집니다. <code>thread_create()</code>의 인자로, 그 context 안에서 실행될 함수를 넘깁니다. 새 스레드가 처음 스케줄되어 실행되면, 그 함수의 시작 부분에서 실행을 시작합니다. 함수가 반환되면 스레드는 종료됩니다. 따라서 각 스레드는 Pintos 안에서 실행되는 작은 프로그램처럼 동작하며, <code>thread_create()</code>에 넘긴 함수가 그 작은 프로그램의 <code>main()</code>에 해당합니다.</p>
+<p>어느 순간에도 정확히 하나의 스레드만 실행되고, 나머지 스레드는 비활성 상태입니다. 스케줄러는 다음에 실행할 스레드를 결정합니다. 실행할 준비가 된 스레드가 하나도 없으면 <code>idle()</code>에 구현된 특별한 <em>idle</em> 스레드가 실행됩니다. 동기화 primitive는 어떤 스레드가 다른 스레드의 작업을 기다려야 할 때 context switch를 강제할 수 있습니다.</p>
+<p>context switch의 메커니즘은 <code>threads/thread.c</code>의 <code>thread_launch()</code>에 있습니다. 이 부분을 반드시 이해할 필요는 없습니다. 이 코드는 현재 실행 중인 스레드의 상태를 저장하고, 전환하려는 스레드의 상태를 복원합니다.</p>
+<p>무슨 일이 일어나는지 보려면 GDB 디버거로 context switch를 천천히 따라가 보세요(<a href="../appendix/debugging_tools.html#gdb">GDB</a> 참조). <code>schedule()</code>에 breakpoint를 걸고 그 지점부터 한 단계씩 실행해 볼 수 있습니다. 각 스레드의 주소와 상태, 그리고 각 스레드의 call stack에 어떤 함수들이 있는지 추적하세요. 한 스레드가 <code>do_iret()</code>에서 <code>iret</code>을 실행하면 다른 스레드가 실행을 시작하는 것을 볼 수 있습니다.</p>
+<p><strong>경고</strong>: Pintos에서 각 스레드에는 작고 고정된 크기의 실행 스택이 할당됩니다. 크기는 4 kB보다 작습니다. 커널은 stack overflow를 감지하려고 하지만 완벽하게 감지할 수는 없습니다. 예를 들어 <code>int buf[1000];</code>처럼 큰 자료구조를 non-static local variable로 선언하면, 원인을 알기 어려운 kernel panic 같은 이상한 문제가 생길 수 있습니다. 스택 할당의 대안으로는 page allocator와 block allocator가 있습니다(<a href="../appendix/memory_allocation.html">메모리 할당</a> 참조).</p>
+<h3 id="source-files">소스 파일</h3>
+<p>다음은 <code>threads</code>와 <code>include/threads</code> 디렉터리에 있는 파일들의 간단한 개요입니다. 이 코드 대부분을 수정할 필요는 없지만, 어떤 코드를 살펴봐야 하는지 감을 잡기 위해 이 개요를 제공합니다.</p>
+<h4 id="threads-codes"><code>threads</code> 코드</h4>
+<ul>
+<li><p><code>loader.S</code>, <code>loader.h</code></p>
+<p>커널 로더입니다. PC BIOS가 메모리에 올리는 512바이트의 코드와 데이터를 조합하고, 디스크에서 커널을 찾아 로드한 뒤 <code>start.S</code>의 <code>bootstrap()</code>으로 점프합니다. 이 코드를 보거나 수정할 필요는 없습니다. <code>start.S</code>는 memory protection에 필요한 기본 설정을 수행하고 64-bit long mode로 점프합니다. 로더와 달리 이 코드는 실제 커널의 일부입니다.</p>
+</li>
+<li><p><code>kernel.lds.S</code></p>
+<p>커널을 링크하는 데 사용하는 linker script입니다. 커널의 load address를 설정하고, <code>start.S</code>가 커널 이미지의 시작 부분 근처에 오도록 배치합니다. 역시 이 코드를 보거나 수정할 필요는 없지만, 궁금하다면 참고할 수 있습니다.</p>
+</li>
+<li><p><code>init.c</code>, <code>init.h</code></p>
+<p>커널 초기화 코드입니다. 커널의 main program인 <code>main()</code>을 포함합니다. 무엇이 초기화되는지 보려면 적어도 <code>main()</code>은 살펴봐야 합니다. 직접 작성한 초기화 코드를 여기에 추가하고 싶어질 수도 있습니다.</p>
+</li>
+<li><p><code>thread.c</code>, <code>thread.h</code></p>
+<p>기본 스레드 지원 코드입니다. 이번 프로젝트의 대부분 작업은 이 파일들에서 이루어집니다. <code>thread.h</code>는 <code>struct thread</code>를 정의하며, 이 구조체는 여러 프로젝트에서 수정할 가능성이 높습니다. 자세한 내용은 <a href="../appendix/threads.html">스레드</a>를 참조하세요.</p>
+</li>
+<li><p><code>palloc.c</code>, <code>palloc.h</code></p>
+<p>4 kB page의 배수 단위로 시스템 메모리를 나눠 주는 page allocator입니다. 자세한 내용은 <a href="../appendix/memory_allocation.html#page-allocator">Page Allocator</a>를 참조하세요.</p>
+</li>
+<li><p><code>malloc.c</code>, <code>malloc.h</code></p>
+<p>커널용 <code>malloc()</code>과 <code>free()</code>의 단순한 구현입니다. 자세한 내용은 <a href="../appendix/memory_allocation.html#block-allocator">Block Allocator</a>를 참조하세요.</p>
+</li>
+<li><p><code>interrupt.c</code>, <code>interrupt.h</code></p>
+<p>기본 interrupt 처리 코드와 interrupt를 켜고 끄는 함수들입니다.</p>
+</li>
+<li><p><code>intr-stubs.S</code>, <code>intr-stubs.h</code></p>
+<p>저수준 interrupt 처리를 위한 assembly 코드입니다.</p>
+</li>
+<li><p><code>synch.c</code>, <code>synch.h</code></p>
+<p>기본 동기화 primitive입니다. semaphore, lock, condition variable, optimization barrier를 제공합니다. 모든 프로젝트에서 동기화가 필요할 때 이들을 사용해야 합니다. 자세한 내용은 <a href="../appendix/synchronization.html">동기화</a>를 참조하세요.</p>
+</li>
+<li><p><code>mmu.c</code>, <code>mmu.h</code></p>
+<p>x86-64 page table을 다루는 함수들입니다. Project 1 이후에 이 파일을 더 자세히 보게 됩니다.</p>
+</li>
+<li><p><code>io.h</code></p>
+<p>I/O port 접근을 위한 함수들입니다. 주로 <code>devices</code> 디렉터리의 코드에서 사용되며, 직접 건드릴 필요는 거의 없습니다.</p>
+</li>
+<li><p><code>vaddr.h</code>, <code>pte.h</code></p>
+<p>가상 주소와 page table entry를 다루기 위한 함수와 매크로입니다. Project 3에서 더 중요해집니다. 지금은 무시해도 됩니다.</p>
+</li>
+<li><p><code>flags.h</code></p>
+<p>x86-64 <code>flags</code> register의 몇몇 bit를 정의하는 매크로입니다. 아마 직접 다룰 일은 거의 없습니다.</p>
+</li>
+</ul>
+<h4 id="devices-codes"><code>devices</code> 코드</h4>
+<p>기본 스레드 커널에는 <code>devices</code> 디렉터리의 다음 파일들도 포함됩니다.</p>
+<ul>
+<li><p><code>timer.c</code>, <code>timer.h</code></p>
+<p>기본적으로 초당 100번 tick하는 시스템 타이머입니다. 이번 프로젝트에서 이 코드를 수정합니다.</p>
+</li>
+<li><p><code>vga.c</code>, <code>vga.h</code></p>
+<p>VGA display driver입니다. 화면에 텍스트를 쓰는 역할을 합니다. 이 코드를 볼 필요는 없습니다. <code>printf()</code>가 VGA display driver를 호출하므로, 이 코드를 직접 호출할 이유도 거의 없습니다.</p>
+</li>
+<li><p><code>serial.c</code>, <code>serial.h</code></p>
+<p>serial port driver입니다. 여기서도 <code>printf()</code>가 이 코드를 호출하므로 직접 호출할 필요는 거의 없습니다. serial 입력을 받아 input layer로 넘깁니다.</p>
+</li>
+<li><p><code>block.c</code>, <code>block.h</code></p>
+<p>block device를 위한 추상화 계층입니다. block device는 디스크처럼 고정 크기 block들의 배열로 이루어진 random-access 장치입니다. 기본 Pintos는 IDE disk와 partition이라는 두 종류의 block device를 지원합니다. 어떤 종류든 block device는 Project 2 전까지는 실제로 사용되지 않습니다.</p>
+</li>
+<li><p><code>ide.c</code>, <code>ide.h</code></p>
+<p>최대 4개의 IDE disk에서 sector를 읽고 쓰는 기능을 지원합니다.</p>
+</li>
+<li><p><code>partition.c</code>, <code>partition.h</code></p>
+<p>disk의 partition 구조를 해석합니다. 이를 통해 하나의 disk를 독립적으로 사용할 수 있는 여러 영역, 즉 partition으로 나눌 수 있습니다.</p>
+</li>
+<li><p><code>kbd.c</code>, <code>kbd.h</code></p>
+<p>keyboard driver입니다. key 입력을 처리해 input layer로 넘깁니다.</p>
+</li>
+<li><p><code>input.c</code>, <code>input.h</code></p>
+<p>input layer입니다. keyboard driver나 serial driver가 넘긴 입력 문자를 queue에 넣습니다.</p>
+</li>
+<li><p><code>intq.c</code>, <code>intq.h</code></p>
+<p>interrupt queue입니다. 커널 스레드와 interrupt handler가 모두 접근하는 circular queue를 관리합니다. keyboard driver와 serial driver가 사용합니다.</p>
+</li>
+<li><p><code>rtc.c</code>, <code>rtc.h</code></p>
+<p>real-time clock driver입니다. 커널이 현재 날짜와 시간을 알 수 있게 합니다. 기본적으로는 <code>thread/init.c</code>에서 random number generator의 초기 seed를 고르는 데만 사용됩니다.</p>
+</li>
+<li><p><code>speaker.c</code>, <code>speaker.h</code></p>
+<p>PC speaker에서 소리를 낼 수 있게 하는 driver입니다.</p>
+</li>
+<li><p><code>pit.c</code>, <code>pit.h</code></p>
+<p>8254 Programmable Interrupt Timer(PIT)를 설정하는 코드입니다. <code>devices/timer.c</code>와 <code>devices/speaker.c</code>가 각각 PIT의 output channel 하나를 사용하므로 이 코드가 필요합니다.</p>
+</li>
+</ul>
+<h4 id="lib-codes"><code>lib</code> 코드</h4>
+<p>마지막으로 <code>lib</code>와 <code>lib/kernel</code>에는 유용한 library routine들이 들어 있습니다. <code>lib/user</code>는 Project 2부터 사용자 프로그램이 사용하지만, 커널의 일부는 아닙니다. 몇 가지를 더 자세히 보면 다음과 같습니다.</p>
+<ul>
+<li><p><code>ctype.h</code>, <code>inttypes.h</code>, <code>limits.h</code>, <code>stdarg.h</code>, <code>stdbool.h</code>, <code>stddef.h</code>,
+<code>stdint.h</code>, <code>stdio.c</code>, <code>stdio.h</code>, <code>stdlib.c</code>, <code>stdlib.h</code>, <code>string.c</code>,
+<code>string.h</code></p>
+<p>표준 C library의 일부를 구현한 것입니다.</p>
+</li>
+<li><p><code>debug.c</code>, <code>debug.h</code></p>
+<p>디버깅에 도움이 되는 함수와 매크로입니다. 자세한 내용은 <a href="../appendix/debugging_tools.html">디버깅 도구</a>를 참조하세요.</p>
+</li>
+<li><p><code>random.c</code>, <code>random.h</code></p>
+<p>pseudo-random number generator입니다. 실제 난수열은 Pintos 실행마다 달라지지 않습니다.</p>
+</li>
+<li><p><code>round.h</code></p>
+<p>rounding을 위한 매크로입니다.</p>
+</li>
+<li><p><code>syscall-nr.h</code></p>
+<p>system call 번호입니다. Project 2 전까지는 사용되지 않습니다.</p>
+</li>
+<li><p><code>kernel/list.c</code>, <code>kernel/list.h</code></p>
+<p>이중 연결 리스트 구현입니다. Pintos 코드 전반에서 사용되며, Project 1에서도 몇 군데 직접 사용하고 싶어질 가능성이 큽니다. <strong>시작하기 전에 이 코드, 특히 header file의 주석을 훑어보는 것을 권장합니다.</strong></p>
+</li>
+<li><p><code>kernel/bitmap.c</code>, <code>kernel/bitmap.h</code></p>
+<p>bitmap 구현입니다. 원한다면 본인 코드에서 사용할 수 있지만, Project 1에서는 아마 필요하지 않을 것입니다.</p>
+</li>
+<li><p><code>kernel/hash.c</code>, <code>kernel/hash.h</code></p>
+<p>hash table 구현입니다. Project 3에서 유용할 가능성이 큽니다.</p>
+</li>
+<li><p><code>kernel/console.c</code>, <code>kernel/console.h</code>, <code>kernel/stdio.h</code></p>
+<p><code>printf()</code>와 몇몇 관련 기능을 구현합니다.</p>
+</li>
+</ul>
+<h3 id="synchronization">동기화</h3>
+<p>올바른 동기화는 이 문제들을 해결하는 핵심입니다. 모든 동기화 문제는 interrupt를 끄면 쉽게 해결할 수 있습니다. interrupt가 꺼져 있는 동안에는 concurrency가 없으므로 race condition도 생기지 않습니다. 그래서 모든 동기화 문제를 interrupt 비활성화로 해결하고 싶어질 수 있습니다. 하지만 그렇게 하지 마세요. 대부분의 동기화 문제는 semaphore, lock, condition variable을 사용해 해결해야 합니다. 어떤 상황에서 어떤 동기화 primitive를 써야 할지 확실하지 않다면 <a href="../appendix/synchronization.html">동기화</a>의 설명이나 <code>threads/synch.c</code>의 주석을 읽어 보세요.</p>
+<p>Pintos 프로젝트에서 interrupt 비활성화로 해결하는 것이 가장 적절한 문제는, 커널 스레드와 interrupt handler 사이에 공유되는 데이터를 조정하는 경우뿐입니다. interrupt handler는 잠들 수 없으므로 lock을 획득할 수 없습니다. 따라서 커널 스레드와 interrupt handler 사이에 공유되는 데이터는 커널 스레드 쪽에서 interrupt를 끄는 방식으로 보호해야 합니다.</p>
+<p>이번 프로젝트에서는 interrupt handler가 스레드 상태에 접근해야 하는 경우가 조금 있습니다. 알람 시계에서는 timer interrupt가 잠든 스레드를 깨워야 합니다. 고급 스케줄러에서는 timer interrupt가 몇몇 전역 변수와 스레드별 변수에 접근해야 합니다. 커널 스레드에서 이런 변수에 접근할 때는 timer interrupt가 끼어들지 못하도록 interrupt를 비활성화해야 합니다.</p>
+<p>interrupt를 끌 때는 interrupt가 꺼진 상태로 실행되는 코드의 양을 최소화해야 합니다. 그렇지 않으면 timer tick이나 input event처럼 중요한 이벤트를 놓칠 수 있습니다. interrupt를 끄면 interrupt 처리 latency도 늘어나므로, 너무 오래 꺼 두면 머신이 느리게 느껴질 수 있습니다.</p>
+<p><code>synch.c</code>의 동기화 primitive 자체도 interrupt를 비활성화하는 방식으로 구현되어 있습니다. 이곳에서 interrupt가 꺼진 상태로 실행되는 코드 양을 조금 늘려야 할 수도 있지만, 그래도 최소한으로 유지해야 합니다.</p>
+<p>interrupt 비활성화는 어떤 코드 구간이 끼어들기 없이 실행되도록 만들기 때문에 디버깅에 유용할 때도 있습니다. 하지만 프로젝트를 제출하기 전에는 그런 디버깅 코드를 제거해야 합니다. 단순히 주석 처리한 채 남겨 두면 코드를 읽기 어려워집니다.</p>
+<p>제출 코드에는 busy waiting이 없어야 합니다. <code>thread_yield()</code>를 반복해서 호출하는 tight loop도 busy waiting의 한 형태입니다.</p>
+<h3 id="development-suggestions">개발 제안</h3>
+<p>과거에는 많은 팀이 과제를 여러 부분으로 나누고, 각 팀원이 마감 직전까지 자기 파트만 작업한 뒤, 마감이 가까워져서야 코드를 합쳐 제출하려고 했습니다. 이것은 좋지 않은 방법입니다. 권장하지 않습니다. 이런 방식으로 작업한 팀들은 서로의 변경이 충돌한다는 사실을 마지막 순간에 발견하는 경우가 많고, 결국 많은 디버깅이 필요해집니다. 어떤 팀은 컴파일도 되지 않거나 부팅도 되지 않는 코드를 제출하기도 했습니다. 테스트 통과는 말할 것도 없습니다.</p>
+<p>대신 <a href="https://git-scm.com/docs/gittutorial" target="_blank">git</a> 같은 source control system을 사용해 팀의 변경 사항을 일찍, 자주 통합하는 것을 권장합니다. 이렇게 하면 각자의 코드가 완성된 뒤가 아니라 작성되는 동안 서로 볼 수 있으므로 놀랄 일이 줄어듭니다. 이런 시스템은 변경 사항을 검토하게 해 주고, 어떤 변경이 버그를 만들었을 때 동작하던 이전 코드 버전으로 되돌아갈 수 있게 해 줍니다.</p>
+<p>이 프로젝트와 이후 프로젝트를 진행하다 보면 이해되지 않는 버그를 만날 것을 예상해야 합니다. 그럴 때는 <a href="../appendix/debugging_tools.html">디버깅 도구</a> 부록을 다시 읽어 보세요. 다시 진도를 낼 수 있게 도와주는 유용한 디버깅 팁이 많습니다. 특히 <a href="../appendix/debugging_tools.html#backtraces">Backtraces</a> 부분은 kernel panic이나 assertion failure를 최대한 활용하는 데 도움이 되므로 반드시 읽어 두세요.</p>
+    </article>
+    <nav class="pager">
+<a href="../introduction/legal_and_ethical_issues.html">이전: 법적 및 윤리적 이슈</a>
+<a href="alarm_clock.html">다음: 알람 시계</a>
+</nav>
+  </main>
+</body>
+</html>
