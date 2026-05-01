@@ -91,13 +91,12 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-	int64_t wakeup_tick;		/* 해당 스레드가 sleep 상태에서 깨어나야 하는 tick 시점.
-								timer_sleep()에서 설정되며, timer_interrupt()에서 비교되어 깨워진다. */
+	int64_t wakeup_tick;                /* timer_sleep()에서 설정되며, timer_interrupt()에서 비교되어 깨워진다. */
 
-	int original_priority;      /* donation 이전 원래 우선순위 */
-	struct lock *wait_on_lock;  /* 현재 기다리고 있는 lock */
-	struct list donations;      /* 나에게 donation한 thread들의 리스트 */
-	struct list_elem donation_elem;  /* donations 리스트 연결용 */
+	int original_priority;              /* donation 이전 원래 우선순위 */
+	struct lock *wait_on_lock;          /* 현재 기다리고 있는 lock */
+	struct list donations;              /* 나에게 donation한 thread들의 리스트 */
+	struct list_elem donation_elem;     /* donations 리스트 연결용 */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;             /* ready_list, sleep_list용 */

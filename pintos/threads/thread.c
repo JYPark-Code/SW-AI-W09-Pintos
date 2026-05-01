@@ -325,26 +325,24 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+	enum intr_level old_level;
+	struct thread *curr = thread_current ();
+	bool should_yield;
 
-	/* donation 쪽 정의
-		1. new_priority를 priority가 아닌
-		original_priority에 저장
-		2. refresh_priority()로 실제 우선순위 재계산
-		→ donations 있으면 donation 값 유지
-		→ donations 없으면 new_priority 적용
-		3. yield 조건 확인
-	*/
-	thread_current()->original_priority = new_priority;
+	/* original_priority 갱신 + refresh_priority 재계산 + ready_list 검사를
+	   atomic하게 처리. donation으로 받은 priority가 있으면 refresh_priority가
+	   그쪽을 우선으로 살린다. ready_list가 cmp_priority로 정렬돼 있으므로
+	   list_front가 곧 최고 우선순위. */
+	old_level = intr_disable ();
+	curr->original_priority = new_priority;
+	refresh_priority ();
+	should_yield = !list_empty (&ready_list)
+		&& list_entry (list_front (&ready_list),
+				struct thread, elem)->priority > curr->priority;
+	intr_set_level (old_level);
 
-	refresh_priority();
-
-	if (!list_empty(&ready_list)) {
-	struct thread *highest = list_entry(
-		list_max(&ready_list, cmp_priority, NULL),
-		struct thread, elem);
-	if (highest->priority > thread_current()->priority)
-		thread_yield();
-	}
+	if (should_yield)
+		thread_yield ();
 }
 
 /* Returns the current thread's priority. */
