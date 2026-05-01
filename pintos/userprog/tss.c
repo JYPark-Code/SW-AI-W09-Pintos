@@ -49,26 +49,43 @@
 struct task_state *tss;
 
 /* Initializes the kernel TSS. */
-void
-tss_init (void) {
+/**
+ * TSS (Task State Segment)
+ * CPU가 "인터럽트나 권한 변경 시 사용할 커널 스택 정보"를 저장해두는 구조체
+ * TSS = CPU가 사용자 모드 -> 커널 모드로 넘어올 때 사용하 스택 위치를 알려주는 구조
+ *
+ * - 핀토스는 유저 프로그램을 실행할 때, 권한이 다른 두 모드를 사용
+ * User Mode (Ring 3)
+ * Kernel Mode (Ring 0)
+ *
+ * - 문제
+ * 유저 프로그램에서 인터럽트(ex. system call, page fault)가 발생하면
+ * 커널 코드로 넘어가야 하는데, 기존 유저 스택을 그대로 쓰면 위험(보안 + 안정성)
+ * 그래서 CPU는 TSS에 저장된 커널 스택으로 스택을 교체 -> 그 위에서 인터럽트 핸들러 실행
+ *
+ * rsp0 (esp0) : 커널 모드에서 사용할 스택 포인터
+ */
+void tss_init(void)
+{
 	/* Our TSS is never used in a call gate or task gate, so only a
 	 * few fields of it are ever referenced, and those are the only
 	 * ones we initialize. */
-	tss = palloc_get_page (PAL_ASSERT | PAL_ZERO);
-	tss_update (thread_current ());
+	tss = palloc_get_page(PAL_ASSERT | PAL_ZERO);
+	tss_update(thread_current());
 }
 
 /* Returns the kernel TSS. */
 struct task_state *
-tss_get (void) {
-	ASSERT (tss != NULL);
+tss_get(void)
+{
+	ASSERT(tss != NULL);
 	return tss;
 }
 
 /* Sets the ring 0 stack pointer in the TSS to point to the end
  * of the thread stack. */
-void
-tss_update (struct thread *next) {
-	ASSERT (tss != NULL);
-	tss->rsp0 = (uint64_t) next + PGSIZE;
+void tss_update(struct thread *next)
+{
+	ASSERT(tss != NULL);
+	tss->rsp0 = (uint64_t)next + PGSIZE;
 }

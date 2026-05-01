@@ -170,14 +170,13 @@ int main(void)
 #endif
 	/* Start thread scheduler and enable interrupts. */
 	/**
-	 * idle_thread를 만드는 것 뿐
+	 * idle_thread를 만드는 것
 	 */
 	thread_start();
 	/**
 	 * 시리얼 포트(COM1, UART)에서 입출력 이벤트가 생겼을 때 오는 하드웨어 인터럽트
 	 * - 시리얼로 들어온 입력이 있으면 RBR_REG에서 읽어 input_putc()로 input buffer에 넣음
 	 * - 출력할 문자가 대기 중이면 txq에서 꺼내 THR_REG로 내보냄
-	 * 모르겠다..
 	 * 시리얼 콘솔을 본격적으로 인터럽트 기반으로 쓰기 시작하는 초기화, Pintos가 출력/테스트에서 시리얼을
 	 * 많이 쓰기 때문에 기본적으로 꼭 켜두는 것
 	 * 즉, IRQ4 -> 벡터 0x24에 등록 후 busy waiting 대시 큐 기반 인터럽트 방식으로 바꾸는 것
@@ -389,6 +388,12 @@ run_task(char **argv)
 	}
 	else
 	{
+		/**
+		 * process_create_initd : 자식 생성
+		 * process_wait : 자식 생성이 끝날때까지 대기
+		 *
+		 * process_create_initd 흐름은 부트스트랩, process_wait는 그 부트스트랩된 자식의 종료 동기화
+		 */
 		process_wait(process_create_initd(task));
 	}
 #else

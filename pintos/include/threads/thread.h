@@ -20,6 +20,11 @@ enum thread_status
 
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
+/**
+ * 실제로는 int 인데, 의미를 분명히 하려고 tid_t 라는 이름을 붙인 것
+ * - ex. tid_t tid = thread_create(); - 새로 만든 스레드의 id를 받는다.
+ * process_wait(tid) : 해당 tid를 가진 자식 프로세스/스레드가 끝날 때까지 기다린다.
+ */
 typedef int tid_t;
 #define TID_ERROR ((tid_t) - 1) /* Error value for tid_t. */
 

@@ -27,6 +27,11 @@
    kernel pool, but that's just fine for demonstration purposes. */
 
 /* A memory pool. */
+/**
+ * 이 메모리 풀에서 어떤 페이지가 쓰였는지 관리하고, 안전하게 할당하기 위한 구조
+ * lock : 같은 풀 내부에서 동시에 할당/해제하는 걸 막기
+ *
+ */
 struct pool
 {
 	struct lock lock;		 /* Mutual exclusion. */
