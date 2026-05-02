@@ -108,7 +108,7 @@ thread_init (void) {
 	};
 	lgdt (&gdt_ds);
 
-	/* Init the globla thread context */
+	/* Init the global thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&sleep_list);
@@ -197,8 +197,13 @@ thread_create (const char *name, int priority,
 		return TID_ERROR;
 
 	/* Initialize thread. */
-	init_thread (t, name, priority); 
+	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+
+#ifdef USERPROG
+	t->parent = thread_current ();
+	list_push_back (&thread_current ()->children, &t->child_elem);
+#endif
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -466,6 +471,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->original_priority = priority;  /* 원래 우선순위 저장 */
 	t->wait_on_lock = NULL;           /* 기다리는 lock 없음 */
 	list_init(&t->donations);         /* donation 리스트 초기화 */
+#ifdef USERPROG
+	list_init (&t->children);
+	sema_init (&t->wait_sema, 0);
+	sema_init (&t->exit_sema, 0);
+	t->parent = NULL;
+#endif
 	t->magic = THREAD_MAGIC;
 }
 

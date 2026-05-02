@@ -29,6 +29,40 @@ static bool load (const char *file_name, struct intr_frame *if_,
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+#define ARGV_MAX 64
+
+static void
+argument_stack (char **argv, int argc, struct intr_frame *_if) {
+	uintptr_t arg_addr[ARGV_MAX];
+	uint8_t *rsp = (uint8_t *) _if->rsp;
+	int i;
+
+	for (i = argc - 1; i >= 0; i--) {
+		size_t len = strlen (argv[i]) + 1;
+		rsp -= len;
+		memcpy (rsp, argv[i], len);
+		arg_addr[i] = (uintptr_t) rsp;
+	}
+
+	rsp = (uint8_t *) ((uintptr_t) rsp & ~(uintptr_t) 7);
+
+	rsp -= sizeof (uintptr_t);
+	*(uintptr_t *) rsp = 0;
+
+	for (i = argc - 1; i >= 0; i--) {
+		rsp -= sizeof (uintptr_t);
+		*(uintptr_t *) rsp = arg_addr[i];
+	}
+
+	_if->R.rsi = (uint64_t) rsp;
+	_if->R.rdi = (uint64_t) argc;
+
+	rsp -= sizeof (uintptr_t);
+	*(uintptr_t *) rsp = 0;
+
+	_if->rsp = (uintptr_t) rsp;
+}
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -177,6 +211,10 @@ process_exec (void *f_name) {
 		argv[argc++] = token;
 	}
 
+	char *argv[ARGV_MAX];
+	int   argc = 0;
+	char *token, *save_ptr;
+
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
@@ -188,64 +226,24 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-	char *argv[64];
-	int argc = 0;
-	char *token;
-	char *save_ptr;
-	
 	for (token = strtok_r (file_name, " ", &save_ptr);
-			 token != NULL;
-			 token = strtok_r (NULL, " ", &save_ptr)) {
+	     token != NULL && argc < ARGV_MAX;
+	     token = strtok_r (NULL, " ", &save_ptr))
 		argv[argc++] = token;
-	}
 
-	/* And then load the binary */
-	success = load (argv[0], &_if, argc, argv);
+	strlcpy (thread_current ()->name, argv[0],
+	         sizeof thread_current ()->name);
 
-	/* If load failed, quit. */
+	success = load (argv[0], &_if);
+
 	if (!success) {
 		palloc_free_page (file_name);
 		return -1;
 	}
 
-	char *arg_addr[64];
-
-	for (int i = argc - 1; i >= 0; i--) {
-		size_t len = strlen (argv[i]) + 1;
-		_if.rsp -= len;
-		memcpy ((void *) _if.rsp, argv[i], len);
-		arg_addr[i] = (char *) _if.rsp;
-	}
-
-	/* Align stack to 8 bytes. */
-	while (_if.rsp % 8 != 0) {
-		_if.rsp--;
-		*(uint8_t *) _if.rsp = 0;
-	}
-	
-	/* Push argv[argc] = NULL. */
-	_if.rsp -= sizeof (char *);
-	*(char **) _if.rsp = NULL;
-	
-	/* Push argv[i] pointers. */
-	for (int i = argc - 1; i >= 0; i--) {
-		_if.rsp -= sizeof (char *);
-		*(char **) _if.rsp = arg_addr[i];
-	}
-	
-	/* Save argv start address. */
-	char **argv_start = (char **) _if.rsp;
-	
-	/* Pass argc and argv to _start(argc, argv). */
-	_if.R.rdi = argc;
-	_if.R.rsi = (uint64_t) argv_start;
-
-	_if.rsp -= sizeof (void *);
-	*(void **) _if.rsp = 0;
-
+	argument_stack (argv, argc, &_if);
 	palloc_free_page (file_name);
-	
-	/* Start switched process. */
+
 	do_iret (&_if);
 	NOT_REACHED ();
 }
@@ -256,29 +254,48 @@ process_exec (void *f_name) {
  * exception), returns -1.  If TID is invalid or if it was not a
  * child of the calling process, or if process_wait() has already
  * been successfully called for the given TID, returns -1
- * immediately, without waiting.
- *
- * This function will be implemented in problem 2-2.  For now, it
- * does nothing. */
+ * immediately, without waiting. */
 int
-process_wait (tid_t child_tid UNUSED) {
-	// struct semaphore stub;
-	// sema_init(&stub, 0);
-	// sema_down(&stub);
-	timer_sleep(100);
-	return -1;
+process_wait (tid_t child_tid) {
+	struct thread *cur = thread_current ();
+	struct thread *child = NULL;
+	struct list_elem *e;
+	int exit_status;
+
+	for (e = list_begin (&cur->children); e != list_end (&cur->children);
+	     e = list_next (e)) {
+		struct thread *t = list_entry (e, struct thread, child_elem);
+		if (t->tid == child_tid) {
+			child = t;
+			break;
+		}
+	}
+	if (child == NULL)
+		return -1;
+
+	sema_down (&child->wait_sema);
+	exit_status = child->exit_status;
+	list_remove (&child->child_elem);
+	sema_up (&child->exit_sema);
+
+	return exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
+	bool is_user_process = (curr->pml4 != NULL);
+
+	if (is_user_process)
+		printf ("%s: exit(%d)\n", curr->name, curr->exit_status);
 
 	process_cleanup ();
+
+	if (is_user_process) {
+		sema_up (&curr->wait_sema);
+		sema_down (&curr->exit_sema);
+	}
 }
 
 /* Free the current process's resources. */
