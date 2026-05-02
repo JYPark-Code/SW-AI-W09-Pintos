@@ -256,15 +256,15 @@ process_exec (void *f_name) {
 	 * 나머지 인자는 argument_stack()에서 유저 스택에 직접 쓴다. */
 	success = load (argv[0], &_if);
 
-	/* 파싱이 끝난 후에야 palloc 해제한다.
-	 * (argv[] 포인터들이 file_name 페이지를 가리키고 있기 때문) */
-	palloc_free_page (file_name);
-	if (!success)
+	if (!success) {
+		palloc_free_page (file_name);
 		return -1;
+	}
 
-	/* load()가 세팅한 _if.rsp(유저 스택 꼭대기)에 인자를 배치한다.
-	 * argument_stack()은 _if.rsp / _if.R.rdi / _if.R.rsi를 모두 채운다. */
+	/* argument_stack()이 argv[i] 포인터(file_name 페이지 내부)를 읽으므로
+	 * 스택 세팅이 완전히 끝난 뒤에 해제한다. */
 	argument_stack (argv, argc, &_if);
+	palloc_free_page (file_name);
 
 	do_iret (&_if);
 	NOT_REACHED ();

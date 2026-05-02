@@ -142,11 +142,13 @@ for (token = strtok_r (file_name, " ", &save_ptr); ...)
 // 2. argv[0]만 load에 넘김
 success = load (argv[0], &_if);
 
-// 3. 파싱 완료 후 palloc 해제
+// 3. load 실패 시에만 즉시 해제
+if (!success) { palloc_free_page (file_name); return -1; }
+
+// 4. 스택 세팅 완료 후 palloc 해제 (argv[]가 file_name 내부를 가리키므로)
+argument_stack (argv, argc, &_if);
 palloc_free_page (file_name);
 
-// 4. 스택 세팅 후 do_iret
-argument_stack (argv, argc, &_if);
 do_iret (&_if);
 ```
 
@@ -154,10 +156,10 @@ do_iret (&_if);
 
 `strtok_r`은 `file_name` 버퍼를 in-place로 수정한다(공백을 `\0`으로 치환).
 `argv[i]` 포인터들은 이 버퍼 내부의 각 토큰을 가리킨다.
-`argument_stack()`이 `memcpy`로 스택에 복사하기 전에 페이지를 해제하면
-dangling pointer가 되어 undefined behavior가 발생한다.
+`argument_stack()`이 `strlen(argv[i])`로 길이를 계산하고 `memcpy`로 스택에 복사하므로,
+**스택 세팅이 완전히 끝난 뒤에** 페이지를 해제해야 한다.
 
-따라서 순서는 반드시 `strtok_r 파싱 → load → palloc_free_page → argument_stack`이어야 한다.
+따라서 순서는 반드시 `strtok_r 파싱 → load → argument_stack → palloc_free_page`이어야 한다.
 
 ---
 
@@ -237,7 +239,47 @@ case SYS_EXIT: {
 
 ---
 
-## 8. 통과 예상 테스트
+## 8. 버그 수정 — `palloc_free_page` 순서 오류
+
+### 증상
+
+```
+Page fault at 0x4747effe: not present error writing page in kernel context.
+Kernel PANIC at userprog/exception.c: Kernel bug - unexpected interrupt in kernel
+```
+
+`args-none`, `halt`, `exit` 등 args / halt / exit 테스트 전부 동일한 주소(`0x4747effe`)에서 커널 패닉.
+
+### 원인 분석
+
+초기 구현에서 `palloc_free_page(file_name)`을 `argument_stack()` **이전**에 호출했다.
+
+```
+strtok_r 파싱  →  load()  →  palloc_free_page()  →  argument_stack()  ← 버그
+```
+
+`argv[i]` 포인터들은 `file_name` palloc 페이지 내부를 가리킨다.
+페이지가 해제된 뒤 `strlen(argv[i])`를 호출하면 해제된 메모리의 쓰레기 값을 읽어
+길이가 203바이트처럼 비정상적으로 커진다.
+그 결과 `rsp`가 `USER_STACK - PGSIZE(0x4747F000)` 보다 낮은 주소까지 내려가
+매핑되지 않은 페이지에 쓰기를 시도하여 커널 Page Fault 발생.
+
+### 수정
+
+```
+strtok_r 파싱  →  load()  →  argument_stack()  →  palloc_free_page()  ← 수정
+```
+
+`argument_stack()` 완료 후 `palloc_free_page()` 호출로 순서를 변경했다.
+
+### 교훈
+
+포인터가 살아있는 동안은 메모리를 해제하지 않는다.
+"파싱 후 해제"라는 주석이 맞아도, `argument_stack()`이 그 포인터를 **다시 읽는다**는 점을 놓쳤다.
+
+---
+
+## 9. 테스트 결과
 
 ```
 pass  args-none
