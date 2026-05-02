@@ -252,6 +252,12 @@ process_exec (void *f_name) {
 	     token = strtok_r (NULL, " ", &save_ptr))
 		argv[argc++] = token;
 
+	/* 스레드 이름을 프로그램 이름으로 갱신.
+	 * thread_create에는 cmdline 전체가 들어가 있어 16자 한계로
+	 * "args-single one"처럼 잘리고, process_exit의 종료 메시지가 깨진다. */
+	strlcpy (thread_current ()->name, argv[0],
+	         sizeof thread_current ()->name);
+
 	/* load()에는 프로그램 이름(argv[0])만 넘긴다.
 	 * 나머지 인자는 argument_stack()에서 유저 스택에 직접 쓴다. */
 	success = load (argv[0], &_if);
@@ -280,42 +286,69 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-/* stage 0 임시 구현 (자식 추적 없음).
+/* 자식 프로세스 종료 대기 후 exit_status를 회수해 반환한다.
  *
- * 왜 이렇게:
- *   현재처럼 -1 즉시 반환하면, init 스레드가 process_wait(initd)에서
- *   바로 복귀 → main이 power_off()로 머신을 끈다. 그 결과 자식 프로세스가
- *   putbuf()로 찍은 stdout 출력이 채 콘솔에 도달하기 전에 종료되어
- *   "테스트 결과를 볼 수 없는" 상태가 된다.
+ * 동기화 흐름 (자식 thread t가 종료될 때):
+ *   1) 부모는 children list에서 child_tid를 찾는다 (없으면 -1).
+ *   2) sema_down(&t->wait_sema): 자식이 process_exit에서 sema_up할 때까지 블록.
+ *   3) 깨어난 시점에 자식은 자신의 exit_sema에서 BLOCKED 상태이므로
+ *      struct thread 본체와 t->exit_status가 아직 살아있다 → 안전하게 회수.
+ *   4) list_remove로 좀비 엔트리 제거.
+ *   5) sema_up(&t->exit_sema): 자식이 마지막 do_schedule(DYING)으로 진입.
  *
- * 해결(최소):
- *   값이 0인 로컬 세마포어를 sema_down 하여 부모를 영구 블록한다.
- *   - 자식이 thread_exit/process_exit으로 마무리되며 출력은 그대로 콘솔로 나간다.
- *   - 부모는 wake되지 않으므로 kernel은 timeout 또는 외부 종료 시까지 alive.
- *   - 자식 list / exit_status 회수 / 좀비 정리는 정식 wait 구현 단계에서 추가.
- *
- * 한계:
- *   진짜 "child_tid가 끝날 때까지" 동기화하지는 않는다. stage 0 디버깅 출력
- *   확인용 스캐폴딩이며, multi-child 시나리오/정확한 exit code 반환은 이후 단계. */
+ * 동일 child_tid에 대해 두 번째 호출되면 list_remove 이후 검색 실패 → -1.
+ * 자식이 아닌 tid나 잘못된 tid도 검색 실패 → -1.
+ */
 int
-process_wait (tid_t child_tid UNUSED) {
-	struct semaphore stub;
-	sema_init(&stub, 0);
-	sema_down(&stub);
-	return -1;
+process_wait (tid_t child_tid) {
+	struct thread *cur = thread_current ();
+	struct thread *child = NULL;
+	struct list_elem *e;
+	int exit_status;
+
+	for (e = list_begin (&cur->children); e != list_end (&cur->children);
+	     e = list_next (e)) {
+		struct thread *t = list_entry (e, struct thread, child_elem);
+		if (t->tid == child_tid) {
+			child = t;
+			break;
+		}
+	}
+	if (child == NULL)
+		return -1;
+
+	sema_down (&child->wait_sema);
+	exit_status = child->exit_status;
+	list_remove (&child->child_elem);
+	sema_up (&child->exit_sema);
+
+	return exit_status;
 }
 
-/* Exit the process. This function is called by thread_exit (). */
+/* Exit the process. This function is called by thread_exit ().
+ *
+ * 동기화 흐름:
+ *   1) 종료 메시지 출력 (유저 프로세스만; 커널 스레드는 pml4=NULL).
+ *   2) process_cleanup으로 pml4 회수.
+ *   3) sema_up(wait_sema): 부모의 process_wait를 깨운다.
+ *   4) sema_down(exit_sema): 부모가 exit_status를 회수할 때까지 블록.
+ *      이 동안 thread 구조체가 살아있으므로 부모가 안전하게 읽을 수 있다.
+ *      부모가 sema_up하면 thread_exit로 복귀해 do_schedule(DYING) 진입.
+ */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+	bool is_user_process = (curr->pml4 != NULL);
 
-	/* 프로세스 종료 메시지: 테스트 프레임워크가 이 형식을 파싱한다.
-	 * 커널 스레드(idle 등)는 유저 프로세스가 아니므로 pml4가 NULL이면 생략. */
-	if (curr->pml4 != NULL)
+	if (is_user_process)
 		printf ("%s: exit(%d)\n", curr->name, curr->exit_status);
 
 	process_cleanup ();
+
+	if (is_user_process) {
+		sema_up (&curr->wait_sema);
+		sema_down (&curr->exit_sema);
+	}
 }
 
 /* Free the current process's resources. */
