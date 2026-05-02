@@ -48,6 +48,7 @@ validate_user_addr (const void *uaddr) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t sysno = f->R.rax;
+	printf("syscall!\n");
 
 	switch (sysno) {
 		case SYS_HALT:
@@ -74,6 +75,17 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			} else {
 				f->R.rax = (uint64_t) -1;
 			}
+			break;
+		}
+		case SYS_EXIT: {
+			int status = (int) f->R.rdi;
+			struct thread *curr = thread_current();
+			// char *pos = strchr(curr->name, '\n');
+			// if (pos != NULL) {
+			// 	*pos = '\0';
+			// }
+			printf("%s: exit(%d)\n", curr->process_name, status);
+			thread_exit();
 			break;
 		}
 		default:

@@ -24,7 +24,8 @@
 #endif
 
 static void process_cleanup (void);
-static bool load (const char *file_name, struct intr_frame *if_);
+static bool load (const char *file_name, struct intr_frame *if_,
+		int argc, char **argv);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
@@ -199,6 +200,16 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	char *argv[128];
+	char *token;
+	char *save_ptr;
+	int argc = 0;
+
+	for (token = strtok_r (file_name, " ", &save_ptr);
+			token != NULL;
+			token = strtok_r (NULL, " ", &save_ptr)) {
+		argv[argc++] = token;
+	}
 
 	char *argv[ARGV_MAX];
 	int   argc = 0;
@@ -389,13 +400,28 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
 static bool
-load (const char *file_name, struct intr_frame *if_) {
+load (const char *file_name, struct intr_frame *if_, int argc, char **argv) {
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
 	struct file *file = NULL;
 	off_t file_ofs;
 	bool success = false;
 	int i;
+	(void) argc;
+	(void) argv;
+
+	char *argv[64];
+	int argc = 0;
+	char *token, *save_ptr;
+
+	for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+	{
+		argv[argc++] = token;
+	}
+
+	argv[argc] = NULL;
+	uint64_t rsp_arr[argc];
+	memcpy(thread_current()->process_name, argv[0], sizeof(thread_current()->process_name));
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -484,6 +510,29 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+
+	for (int i = argc - 1; i >= 0; i--) {
+		size_t len = strlen(argv[i]) + 1;
+		if_->rsp -= len;
+		rsp_arr[i] = if_->rsp;
+		memcpy((void *)if_->rsp, argv[i], len);
+	}
+
+	if_->rsp = if_->rsp & ~0xF;
+
+	if_->rsp -= 8;
+	memset(if_->rsp, 0, sizeof(char **));
+
+	for (int i = argc - 1; i >= 0; i--) {
+		if_->rsp -= 8;
+		memcpy(if_->rsp, &rsp_arr[i], sizeof(char **));
+	}
+
+	if_->rsp -= 8;
+	memset(if_->rsp, 0, sizeof(void *));
+
+	if_->R.rdi = argc;
+	if_->R.rsi = if_->rsp + 8;
 
 	success = true;
 

@@ -93,8 +93,9 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 	int64_t wakeup_tick;                /* timer_sleep()에서 설정되며, timer_interrupt()에서 비교되어 깨워진다. */
+	char process_name[16];
 
-	int original_priority;              /* donation 이전 원래 우선순위 */
+int original_priority;              /* donation 이전 원래 우선순위 */
 	struct lock *wait_on_lock;          /* 현재 기다리고 있는 lock */
 	struct list donations;              /* 나에게 donation한 thread들의 리스트 */
 	struct list_elem donation_elem;     /* donations 리스트 연결용 */

@@ -1,6 +1,10 @@
 # 별도 정리
 pdfs/
 .vscode/
+pintos2/
+select_test.sh
+.test_config
+.test_status
 
 # Pintos 빌드 중간 파일 및 산출물
 *.o
