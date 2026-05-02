@@ -36,6 +36,7 @@ static struct thread *initial_thread;
 
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
+struct list sleep_list;
 
 /* Thread destruction requests */
 static struct list destruction_req;
@@ -62,6 +63,8 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
+// 우선순위 비교
+bool cmp_priority (const struct list_elem *, const struct list_elem *, void *);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -108,6 +111,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -180,6 +184,9 @@ tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
 	struct thread *t;
+	/* Compare the priorites of the currently running thread and the newly inserted one.
+	   Yield the CPU if the newly arriving thread has higher priority
+	*/
 	tid_t tid;
 
 	ASSERT (function != NULL);
@@ -190,7 +197,7 @@ thread_create (const char *name, int priority,
 		return TID_ERROR;
 
 	/* Initialize thread. */
-	init_thread (t, name, priority);
+	init_thread (t, name, priority); 
 	tid = t->tid = allocate_tid ();
 
 	/* Call the kernel_thread if it scheduled.
@@ -206,6 +213,10 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+
+	/* 새로 생성된 스레드의 우선순위가 현재 스레드보다 높으면 CPU를 양보한다. */
+	if (t->priority > thread_current()->priority)
+		thread_yield();
 
 	return tid;
 }
@@ -240,7 +251,9 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	// list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
+
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -303,7 +316,8 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		// list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -311,7 +325,24 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	enum intr_level old_level;
+	struct thread *curr = thread_current ();
+	bool should_yield;
+
+	/* original_priority 갱신 + refresh_priority 재계산 + ready_list 검사를
+	   atomic하게 처리. donation으로 받은 priority가 있으면 refresh_priority가
+	   그쪽을 우선으로 살린다. ready_list가 cmp_priority로 정렬돼 있으므로
+	   list_front가 곧 최고 우선순위. */
+	old_level = intr_disable ();
+	curr->original_priority = new_priority;
+	refresh_priority ();
+	should_yield = !list_empty (&ready_list)
+		&& list_entry (list_front (&ready_list),
+				struct thread, elem)->priority > curr->priority;
+	intr_set_level (old_level);
+
+	if (should_yield)
+		thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -397,6 +428,29 @@ kernel_thread (thread_func *function, void *aux) {
 
 /* Does basic initialization of T as a blocked thread named
    NAME. */
+
+/* 스레드 T를 BLOCKED 상태의 기본 스레드로 초기화한다.
+ *
+ * NAME: 디버깅용 스레드 이름
+ * PRIORITY: 스레드의 초기 우선순위 (PRI_MIN ~ PRI_MAX)
+ *
+ * 초기화 항목:
+ * - 스레드 구조체 전체를 0으로 초기화 (memset)
+ * - 상태: THREAD_BLOCKED (생성 직후 대기 상태) 
+ * - 이름, 스택 포인터, 우선순위 설정
+ *
+ * Priority Donation 관련:
+ * - original_priority: donation 이전 원래 우선순위 보존용
+ *                      lock 반환 시 복원 기준값으로 사용
+ * - wait_on_lock: 현재 기다리는 lock 포인터
+ *                 NULL = 아무 lock도 기다리지 않음
+ *                 nested donation에서 체인 탐색에 사용
+ * - donations: 이 스레드에게 priority를 기부한 스레드들의 리스트
+ *              multiple donation 처리 및 lock 반환 시
+ *              effective priority 재계산에 사용
+ *
+ * 주의: 이 함수 호출 후 thread_unblock()을 통해
+ *       READY 상태로 전환해야 스케줄링 대상이 된다. */
 static void
 init_thread (struct thread *t, const char *name, int priority) {
 	ASSERT (t != NULL);
@@ -408,6 +462,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	/* Priority Donation 관련 초기화 */
+	t->original_priority = priority;  /* 원래 우선순위 저장 */
+	t->wait_on_lock = NULL;           /* 기다리는 lock 없음 */
+	list_init(&t->donations);         /* donation 리스트 초기화 */
 	t->magic = THREAD_MAGIC;
 }
 
@@ -587,4 +645,19 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+/* ready_list를 우선순위(priority) 기준으로 정렬하기 위한 비교 함수.
+   두 스레드를 비교하여, a의 우선순위가 b보다 높으면 true를 반환한다.
+   즉, 우선순위가 높은 스레드가 리스트 앞쪽에 오도록 한다. (내림차순)*/
+bool cmp_priority (const struct list_elem *a,
+              const struct list_elem *b,
+              void *aux)
+{
+	(void) aux; // aux 안쓴다.
+
+    struct thread *ta = list_entry(a, struct thread, elem);
+    struct thread *tb = list_entry(b, struct thread, elem);
+
+    return ta->priority > tb->priority;
 }

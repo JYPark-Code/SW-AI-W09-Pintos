@@ -33,6 +33,9 @@ static void wake_sleeping_threads (void);
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
+// wakeup 순으로 넣기 (최적화)
+static bool cmp_wakeup_tick (const struct list_elem *a, const struct list_elem *b, void *aux);
+
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
@@ -96,6 +99,7 @@ timer_elapsed (int64_t then) {
 
 /* Suspends execution for approximately TICKS timer ticks. */
 void
+<<<<<<< HEAD
 timer_sleep (int64_t sleep_ticks) {
 	struct thread *cur;
 	enum intr_level old_level;
@@ -110,6 +114,35 @@ timer_sleep (int64_t sleep_ticks) {
 	list_insert_ordered (&sleep_list, &cur->sleep_elem, wake_tick_less, NULL);
 	thread_block ();
 	intr_set_level (old_level);
+=======
+timer_sleep (int64_t ticks) {
+	/*
+	1. ticks가 0 이하이면 바로 종료
+	2. 현재 tick 저장
+	3. 현재 스레드 찾기
+	4. 깨어날 시간 = 현재 tick + sleep할 tick
+	5. 인터럽트 끄기
+	6. sleep_list에 wakeup_tick 기준으로 삽입
+	7. 현재 스레드를 block
+	8. 인터럽트 상태 복구
+	*/
+
+	 if (ticks <= 0)
+        return;
+
+	int64_t start = timer_ticks ();
+
+	ASSERT (intr_get_level () == INTR_ON);
+	
+	struct thread *t = thread_current ();
+    t->wakeup_tick = start + ticks;
+
+    enum intr_level old_level = intr_disable ();
+    // list_push_back (&sleep_list, &t->elem);
+	list_insert_ordered (&sleep_list, &t->elem, cmp_wakeup_tick, NULL);
+    thread_block ();
+    intr_set_level (old_level);
+>>>>>>> accccb83401aa30138aac21a537a294f9f557b24
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -139,8 +172,49 @@ timer_print_stats (void) {
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
+	 /* 전역 tick 값을 1 증가시킨다.
+       timer_interrupt는 매 timer tick마다 호출되므로,
+       이 값은 Pintos가 부팅된 이후 흐른 시간을 의미한다. */
 	ticks++;
+<<<<<<< HEAD
 	wake_sleeping_threads ();
+=======
+	/* code to add: 
+	   check sleep list and the global tick.
+	   find any threads to wake up,
+	   move them to the ready list if necessary.
+	   update the global tick.	
+	*/
+
+	 /* sleep_list의 첫 번째 원소부터 확인한다.
+       sleep_list에는 timer_sleep()에서 BLOCK된 스레드들이 들어 있다. */
+	struct list_elem *e = list_begin (&sleep_list);
+
+	/* sleep_list 끝에 도달할 때까지 순회한다. */
+	while (e != list_end (&sleep_list)) {
+		 /* list_elem을 실제 struct thread 포인터로 변환한다. */
+		struct thread *t = list_entry (e, struct thread, elem);
+
+		 /* 현재 tick이 해당 스레드의 wakeup_tick 이상이면
+           이제 깨워야 하는 시점이다. */
+		if (timer_ticks () >= t->wakeup_tick) {
+
+			/* 현재 원소를 sleep_list에서 제거한다.
+               list_remove(e)는 제거된 원소의 다음 원소를 반환하므로,
+               순회 중 삭제해도 다음 위치를 잃지 않는다. */
+			e = list_remove (e);
+
+			/* BLOCK 상태였던 스레드를 READY 상태로 바꾸고
+			ready_list에 넣어 스케줄링 대상이 되게 한다. */
+			thread_unblock (t);
+		} else {
+			/* wake up tick 기준 정렬 덕분에 더 이상 검사할 필요 없어서 종료 */
+			break;
+		}
+	}
+	/* 현재 실행 중인 스레드의 tick 사용량을 갱신하고,
+	time slice가 끝났다면 스케줄링이 필요함을 표시한다. */
+>>>>>>> accccb83401aa30138aac21a537a294f9f557b24
 	thread_tick ();
 }
 
@@ -224,4 +298,20 @@ real_time_sleep (int64_t num, int32_t denom) {
 		ASSERT (denom % 1000 == 0);
 		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 	}
+}
+
+/* sleep_list를 wakeup_tick 기준으로 정렬하기 위한 비교 함수.
+   두 스레드를 비교하여, a의 wakeup_tick이 b보다 작으면 true를 반환한다.
+   즉, 더 빨리 깨어나야 하는 스레드가 리스트 앞쪽에 오도록 한다. (오름차순)*/
+static bool
+cmp_wakeup_tick (const struct list_elem *a,
+                 const struct list_elem *b,
+                 void *aux)
+{
+    (void) aux;
+
+    struct thread *ta = list_entry(a, struct thread, elem);
+    struct thread *tb = list_entry(b, struct thread, elem);
+
+    return ta->wakeup_tick < tb->wakeup_tick;
 }
