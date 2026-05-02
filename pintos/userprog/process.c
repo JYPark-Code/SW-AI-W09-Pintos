@@ -183,14 +183,23 @@ process_exec (void *f_name) {
 	char *save_ptr;                 /* strtok_r()가 다음 탐색 위치를 기억하기 위해 사용하는 포인터 */
 	
 	for (token = strtok_r (file_name, " ", &save_ptr);   /* file_name의 첫 번째 단어를 공백 기준으로 찾는다 */
-			 token != NULL;                                  /* 더 이상 단어가 없으면 반복을 끝낸다 */
+			 token != NULL;                              										    /* 더 이상 단어가 없으면 반복을 끝낸다 */
 			 token = strtok_r (NULL, " ", &save_ptr)) {      /* 이전 위치 다음부터 다음 단어를 계속 찾는다 */
-		argv[argc++] = token;                              /* 찾은 단어 주소를 argv에 저장하고 argc를 1 증가시킨다 */
+		argv[argc++] = token;              										                /* 찾은 단어 주소를 argv에 저장하고 argc를 1 증가시킨다 */
 	}
-	
 
 	/* And then load the binary */
 	success = load (argv[0], &_if);
+
+	char *arg_addr[64];                 						        /* 유저 스택에 복사된 각 인자 문자열의 주소를 저장 */
+
+	for (int i = argc - 1; i >= 0; i--) { 			    		      /* 마지막 인자부터 첫 번째 인자까지 거꾸로 처리 */
+  	size_t len = strlen (argv[i]) + 1;			  		        /* 문자열 길이 + 널 문자('\0') 크기 */
+  	_if.rsp -= len;                      		  				     /* 스택은 아래로 자라므로 문자열 길이만큼 rsp를 내림 */
+  	memcpy ((void *) _if.rsp, argv[i], len);	 /* 커널 argv[i] 문자열을 유저 스택 위치로 복사 */
+  	arg_addr[i] = (char *) _if.rsp;           						 /* 복사된 유저 스택 주소를 저장 */
+	}
+
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
