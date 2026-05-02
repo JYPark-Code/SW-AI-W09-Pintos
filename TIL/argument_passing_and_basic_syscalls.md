@@ -497,3 +497,231 @@ kernel main
 | `SYS_FORK` + `__do_fork` 완성 | 80~100줄 (page table 복제 + fd 복제 + parent_if 전달) |
 
 지금 7개 통과 → 다음으로 wait 계열 풀려면 **fork 구현이 가장 큰 고비**.
+
+---
+
+## 13. 전체 코드 흐름 도식 — 부팅부터 power_off까지
+
+`pintos -- run "args-single onearg"` 한 줄이 어떻게 흘러가는지 한 사이클 추적.
+
+### 13.1 부팅 + 자식 생성 단계
+
+```
+[initial_thread (main)]                          [kernel space]
+    │
+    ├─ run_actions("args-single onearg")
+    │
+    ├─ process_create_initd("args-single onearg")
+    │     │
+    │     ├─ palloc_get_page(0) → fn_copy
+    │     ├─ strlcpy(fn_copy, "args-single onearg", PGSIZE)
+    │     │
+    │     └─ thread_create("args-single onearg", initd, fn_copy)
+    │            │                                 ┌─────────────────┐
+    │            ├─ palloc_get_page(PAL_ZERO) → t  │ #ifdef USERPROG │
+    │            ├─ init_thread(t, name, pri)      │  parent 연결    │
+    │            ├─ t->parent = current  ◄─────────┤                 │
+    │            ├─ list_push_back(&current        │  자동 children  │
+    │            │     ->children, &t->child_elem) │  list 등록      │
+    │            └─ thread_unblock(t)              └─────────────────┘
+    │                  ↓                          [initd thread t]
+    │                  └─────── ready_list로 ──────────┐
+    │                                                  ▼
+    └─ process_wait(initd_tid)                  (스케줄 대기)
+          │
+          ├─ children list에서 initd_tid 검색 → 발견
+          └─ sema_down(&initd->wait_sema) ⏸ BLOCKED
+```
+
+### 13.2 자식 실행 단계 (process_exec)
+
+```
+[initd thread, 스케줄됨]                          [kernel space]
+    │
+    ├─ initd(f_name="args-single onearg")
+    │     ├─ process_init()
+    │     └─ process_exec(f_name)
+    │            │
+    │            ├─ process_cleanup()  ← 기존 pml4 회수
+    │            │
+    │            ├─ strtok_r 파싱
+    │            │     argv = ["args-single", "onearg"]
+    │            │     argc = 2
+    │            │
+    │            ├─ strlcpy(thread->name, argv[0])
+    │            │     ── 16자 잘림 방지: "args-single"
+    │            │
+    │            ├─ load("args-single", &_if)
+    │            │     ├─ pml4_create + process_activate
+    │            │     ├─ ELF 세그먼트 로드
+    │            │     ├─ setup_stack: USER_STACK 매핑
+    │            │     │     _if.rsp = 0x47480000
+    │            │     └─ _if.rip = ehdr.e_entry
+    │            │
+    │            ├─ argument_stack(argv, argc, &_if)
+    │            │     ─ 6단계로 유저 스택 세팅
+    │            │     ─ rsp ↓, rdi=2, rsi=&argv[0]
+    │            │
+    │            ├─ palloc_free_page(file_name)
+    │            │     ─ argv[i] 사용 끝난 후
+    │            │
+    │            └─ do_iret(&_if) ────────┐
+    │                                      │
+    └────────────────────────────────────  │
+                                            ▼
+                                    [user mode 진입]
+```
+
+### 13.3 유저 모드 → exit() → 동기화 단계
+
+```
+[user mode: args-single]
+    │
+    ├─ _start → main(2, ["args-single","onearg"])
+    │     ↑ rdi/rsi가 이대로 main 인자로 전달됨
+    │
+    ├─ printf 등 작업
+    │
+    └─ exit(0)
+         │ syscall instruction (rax=SYS_EXIT, rdi=0)
+         ▼
+[kernel: syscall_handler]
+    │
+    ├─ case SYS_EXIT
+    ├─ thread_current()->exit_status = 0
+    └─ thread_exit()
+         └─ process_exit()
+              │
+              ├─ printf("args-single: exit(0)\n")
+              ├─ process_cleanup()  ← pml4 destroy
+              │
+              ├─ sema_up(&curr->wait_sema) ──────┐
+              │                                   │ initial_thread
+              │                                   │ 깨움
+              └─ sema_down(&curr->exit_sema) ⏸   │
+                  (BLOCKED, struct는 alive)       │
+                                                  ▼
+[initial_thread (main) 깨어남]
+    │
+    ├─ exit_status = child->exit_status  (=0)
+    ├─ list_remove(&child->child_elem)
+    ├─ sema_up(&child->exit_sema) ──────┐
+    │                                    │ initd 깨움
+    └─ return 0  (process_wait 복귀)     │
+         │                               │
+         ▼                               ▼
+    main() 계속                    [initd 깨어남]
+         │                               │
+         └─ power_off() ◄── shutdown    └─ return → thread_exit
+                                              └─ do_schedule(THREAD_DYING)
+                                                   └─ 다음 스케줄 시 페이지 해제
+```
+
+### 13.4 핵심 invariant 정리
+
+| 시점 | initial_thread | initd | child struct alive? |
+|---|---|---|---|
+| `sema_down(wait)` 직전 | RUNNING | READY | YES |
+| 자식 `sema_up(wait)` 직후 | READY | RUNNING | YES |
+| 자식 `sema_down(exit)` 진입 | RUNNING | BLOCKED | YES (★ 이 구간에서 부모가 안전하게 read) |
+| 부모 `sema_up(exit)` 직후 | RUNNING | READY | YES |
+| 자식 `do_schedule(DYING)` | RUNNING/READY | DYING | NO (다음 schedule에서 free) |
+
+★ 표시 구간이 핵심. `exit_sema`가 없으면 자식이 즉시 죽을 수 있어 부모가 read한 `exit_status`가 dangling이 될 수 있음.
+
+---
+
+## 14. 어느 포인트로 작업을 잡고 개발했는가
+
+### 14.1 출발점
+
+stage 0 완료 상태:
+- `SYS_WRITE` (fd=1) 만 동작
+- `process_wait`는 `sema_down`으로 영구 블록 스텁 (자식 출력 보존 목적)
+- 7개 테스트 모두 FAIL
+
+### 14.2 작업 순서 (4 사이클로 분해)
+
+**Cycle 1 — argument passing 골격**
+
+| 작업 | 이유 |
+|---|---|
+| `argument_stack()` 신규 | KAIST 64-bit ABI에 맞춰 rdi=argc, rsi=&argv[0] 직접 세팅 |
+| `process_exec` 인자 파싱 | strtok_r로 분해 → load(argv[0]) → argument_stack |
+| `thread.h` `exit_status` | exit() 인자를 thread struct에 저장할 곳 필요 |
+| `syscall.c` SYS_HALT/SYS_EXIT | 유저 프로그램이 종료할 입구 마련 |
+
+→ 빌드 성공, 수동 실행 OK 같아 보임 (실제론 false positive)
+
+**Cycle 2 — Page Fault 디버깅**
+
+증상: `Page fault at 0x4747effe in kernel context`. 반복 실행 시 항상 같은 주소.
+
+추적:
+- `0x4747effe` < `USER_STACK - PGSIZE (0x4747F000)` → 매핑 외 영역
+- `args-none`(arg 1개)도 `halt`(arg 1개)도 같은 주소 → 길이 의존성 없음
+- `rdx = 0xcc = 204`바이트 memcpy → strlen이 비정상적으로 큰 값 반환
+
+원인: `palloc_free_page`를 `argument_stack` **이전**에 호출 → `argv[i]`가 dangling pointer → `strlen(argv[i])`이 쓰레기 메모리에서 끝없이 0을 못 찾고 큰 길이 반환.
+
+수정: 해제 순서를 `argument_stack` **이후**로.
+
+**Cycle 3 — TIMEOUT 디버깅**
+
+수동 실행에선 OK였지만 `make tests/userprog/<t>.result`에선 `halt`만 PASS, 나머지 6개 TIMEOUT.
+
+추적: output을 읽어보니 `args-none: exit(0)` 까지 정상 출력 → 그 뒤로 시스템 종료 안 됨.
+
+원인: `process_wait`이 `sema_down(stub)`으로 영구 블록 → 부모(initial_thread)가 `power_off()`까지 도달 못 함.
+
+선택지:
+- (A) `timer_sleep(100); return -1;` 꼼수 → 작업량 적지만 wait 계열 테스트는 어차피 못 풀고, 1초 타이밍에 의존하는 race 위험.
+- (B) 정식 stage 1 wait 구현 → 30~40줄 추가지만 다음 단계 작업 활용 가능.
+
+→ 팀 토론 후 (B) 채택.
+
+**Cycle 4 — 정식 wait/exit 동기화 + thread name 잘림 수정**
+
+| 작업 | 이유 |
+|---|---|
+| `thread.h` 5필드 추가 | parent/children/wait_sema/exit_sema 자료구조 |
+| `thread_create` 부모 연결 | 모든 child가 자동 등록되도록 |
+| `init_thread`에서 list/sema init | initial_thread 포함 모두 일관 |
+| `process_wait` 검색+sema 패턴 | children 순회 → wait_sema down → exit 회수 → exit_sema up |
+| `process_exit` sema 시퀀스 | 부모의 회수까지 thread struct 보존 |
+| `process_exec` thread name 갱신 | `args-single onearg`(18자)가 16자 한계로 `args-single one`이 되어 종료 메시지 깨지는 부수 버그 |
+
+→ 7개 모두 PASS.
+
+### 14.3 개발 사이클의 공통 패턴
+
+```
+1. 코드 작성
+   ↓
+2. make 빌드 (warning/error 0 확인)
+   ↓
+3. 수동 실행: pintos -v -k -T 60 ... -- -q -f run <test>
+   (콘솔 출력 + Kernel PANIC 여부 확인)
+   ↓
+4. 정식 프레임워크: make tests/userprog/<t>.result
+   (.result = PASS/FAIL, .output = 실제 출력)
+   ↓
+5. FAIL이면 .output 분석 → 원인 가설 → 수정 → 2로
+```
+
+특히 3과 4의 **간극**이 핵심 교훈:
+- 3은 "Kernel PANIC만 안 나면 OK" → false positive 가능
+- 4는 "출력이 expected와 일치 + 정상 종료" → 진짜 PASS
+
+Cycle 1→2 에서 3만 보고 통과로 착각, Cycle 2→3 에서 4를 돌리면서 TIMEOUT 발견.
+**진짜 검증은 항상 정식 프레임워크로**.
+
+### 14.4 의사결정 트레이드오프
+
+| 상황 | 선택지 | 채택 | 이유 |
+|---|---|---|---|
+| `rsi` 캡처 시점 | (a) `rsp+8`로 계산 (b) push 전 명시 저장 | (b) | 의도가 코드에 드러남, 오프셋 계산 실수 방지 |
+| `palloc_free_page` 위치 | (a) `argument_stack` 전 (b) 후 | (b) | argv[i]가 file_name 내부를 가리켜 dangling 방지 |
+| `process_wait` 임시 fix | (a) `timer_sleep` 꼼수 (b) 정식 sema | (b) | (a)는 wait 테스트 못 풀고 race 위험, (b)는 다음 단계 재사용 |
+| thread name 갱신 위치 | (a) `process_create_initd` (b) `process_exec` | (b) | exec 후 프로그램 바뀌면 이름도 동반 변경, 미래 SYS_EXEC와 일관 |
+| `exit_status` 초기값 | (a) 명시적 -1 (b) memset의 0 | (b) | 정상 종료 default=0 (Unix 관례), 비정상은 추후 kill 경로에서 -1 |
