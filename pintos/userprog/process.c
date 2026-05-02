@@ -14,16 +14,20 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
+#include "devices/timer.h"
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
 
 static void process_cleanup (void);
-static bool load (const char *file_name, struct intr_frame *if_);
+static bool load (const char *file_name, struct intr_frame *if_,
+		int argc, char **argv);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
@@ -165,9 +169,22 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	char *argv[128];
+	char *token;
+	char *save_ptr;
+	int argc = 0;
+
+	for (token = strtok_r(file_name, " ", &save_ptr);
+     token != NULL;
+     token = strtok_r(NULL, " ", &save_ptr)) {
+    argv[argc] = token;
+    argc++;
+}
+
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
+
 	struct intr_frame _if;
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
@@ -177,7 +194,7 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (argv[0], &_if, argc, argv);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -199,11 +216,29 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
+/* stage 0 임시 구현 (자식 추적 없음).
+ *
+ * 왜 이렇게:
+ *   현재처럼 -1 즉시 반환하면, init 스레드가 process_wait(initd)에서
+ *   바로 복귀 → main이 power_off()로 머신을 끈다. 그 결과 자식 프로세스가
+ *   putbuf()로 찍은 stdout 출력이 채 콘솔에 도달하기 전에 종료되어
+ *   "테스트 결과를 볼 수 없는" 상태가 된다.
+ *
+ * 해결(최소):
+ *   값이 0인 로컬 세마포어를 sema_down 하여 부모를 영구 블록한다.
+ *   - 자식이 thread_exit/process_exit으로 마무리되며 출력은 그대로 콘솔로 나간다.
+ *   - 부모는 wake되지 않으므로 kernel은 timeout 또는 외부 종료 시까지 alive.
+ *   - 자식 list / exit_status 회수 / 좀비 정리는 정식 wait 구현 단계에서 추가.
+ *
+ * 한계:
+ *   진짜 "child_tid가 끝날 때까지" 동기화하지는 않는다. stage 0 디버깅 출력
+ *   확인용 스캐폴딩이며, multi-child 시나리오/정확한 exit code 반환은 이후 단계. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
+	timer_sleep(100);
+	// struct semaphore stub;
+	// sema_init(&stub, 0);
+	// sema_down(&stub);
 	return -1;
 }
 
@@ -321,13 +356,15 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
 static bool
-load (const char *file_name, struct intr_frame *if_) {
+load (const char *file_name, struct intr_frame *if_, int argc, char **argv) {
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
 	struct file *file = NULL;
 	off_t file_ofs;
 	bool success = false;
 	int i;
+	(void) argc;
+	(void) argv;
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
