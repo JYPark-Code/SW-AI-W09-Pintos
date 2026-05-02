@@ -91,21 +91,16 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-	int64_t wakeup_tick;                /* timer_sleep()에서 설정되며, timer_interrupt()에서 비교되어 깨워진다. */
 
-	int original_priority;              /* donation 이전 원래 우선순위 */
-	struct lock *wait_on_lock;          /* 현재 기다리고 있는 lock */
-	struct list donations;              /* 나에게 donation한 thread들의 리스트 */
-	struct list_elem donation_elem;     /* donations 리스트 연결용 */
+	int original_priority;
+	struct lock *wait_on_lock;
+	struct list donations;
+	struct list_elem donation_elem;
 
 	/* Shared between thread.c and synch.c. */
-<<<<<<< HEAD
 	struct list_elem elem;              /* List element. */
 	int64_t wake_tick;                  /* Tick when timer_sleep() wakes up. */
 	struct list_elem sleep_elem;        /* List element for sleeping threads. */
-=======
-	struct list_elem elem;             /* ready_list, sleep_list용 */
->>>>>>> accccb83401aa30138aac21a537a294f9f557b24
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -128,8 +123,6 @@ extern bool thread_mlfqs;
 bool cmp_priority(const struct list_elem *a,
                   const struct list_elem *b,
                   void *aux);
-
-extern struct list sleep_list;
 
 void thread_init (void);
 void thread_start (void);
