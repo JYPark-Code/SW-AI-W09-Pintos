@@ -4,6 +4,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/init.h"       /* power_off() */
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "threads/vaddr.h"      /* is_user_vaddr / KERN_BASE 사용 */
@@ -58,6 +59,23 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t sysno = f->R.rax;
 
 	switch (sysno) {
+		case SYS_HALT:
+			/* 머신을 즉시 종료한다.
+			 * power_off()는 QEMU/Bochs에 shutdown 신호를 보내며 NO_RETURN이다. */
+			power_off ();
+			NOT_REACHED ();
+
+		case SYS_EXIT: {
+			/* rdi에 담긴 종료 코드를 thread 구조체에 저장한 뒤 종료한다.
+			 * exit_status는 process_wait()가 회수할 때 쓰이며,
+			 * process_exit()의 종료 메시지 출력에도 사용된다.
+			 * thread_exit()가 process_exit()를 호출하므로 별도 호출 불필요. */
+			int status = (int) f->R.rdi;
+			thread_current ()->exit_status = status;
+			thread_exit ();
+			NOT_REACHED ();
+		}
+
 		case SYS_WRITE: {
 			int            fd     = (int) f->R.rdi;
 			const void    *buffer = (const void *) f->R.rsi;

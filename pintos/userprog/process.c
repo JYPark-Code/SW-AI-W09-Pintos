@@ -28,6 +28,68 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+#define ARGV_MAX 64     /* 인자 개수 상한 (args-many 테스트 기준 22개로 충분) */
+
+/* 유저 스택에 argv 문자열과 포인터 배열을 세팅한다.
+ *
+ * 스택 레이아웃 (낮은 주소 방향으로 성장):
+ *   [argv[0] 문자열] … [argv[argc-1] 문자열]
+ *   [8-byte 패딩 (word-align)]
+ *   [NULL sentinel  (8 bytes)]
+ *   [argv[argc-1] 포인터] … [argv[0] 포인터]  ← rsi 여기 (argv[] 배열 시작)
+ *   [fake return address = 0  (8 bytes)]        ← rsp 여기
+ *
+ * rdi = argc, rsi = argv[] 배열의 시작 주소를 intr_frame에 직접 기록한다.
+ * rsi를 (rsp+8)로 계산하지 않고 명시적으로 저장하는 이유:
+ *   do_iret 이후 %rsi 레지스터가 곧바로 main(argc, argv)로 전달되므로
+ *   스택 상의 정확한 포인터 위치를 가리켜야 한다. */
+static void
+argument_stack (char **argv, int argc, struct intr_frame *_if) {
+	uintptr_t arg_addr[ARGV_MAX];
+	uint8_t *rsp = (uint8_t *) _if->rsp;
+	int i;
+
+	/* 1. 문자열 데이터를 스택에 복사 (argv[argc-1] → argv[0] 순서로 push).
+	 *    역순으로 push하면 argv[0]가 가장 낮은 주소에 위치해
+	 *    디버깅 시 hex-dump가 읽기 쉽다. */
+	for (i = argc - 1; i >= 0; i--) {
+		size_t len = strlen (argv[i]) + 1;  /* null terminator 포함 */
+		rsp -= len;
+		memcpy (rsp, argv[i], len);
+		arg_addr[i] = (uintptr_t) rsp;     /* 나중에 포인터로 재사용 */
+	}
+
+	/* 2. word-align: ABI는 rsp가 16-byte 정렬된 상태로 call을 요구한다.
+	 *    포인터 push 전에 8-byte 단위로 맞춰두면 NULL sentinel + 짝수 개
+	 *    포인터가 늘 16-byte 정렬을 만족시킨다. */
+	rsp = (uint8_t *) ((uintptr_t) rsp & ~(uintptr_t) 7);
+
+	/* 3. NULL sentinel: argv[argc] = 0 (C 표준 요구사항) */
+	rsp -= sizeof (uintptr_t);
+	*(uintptr_t *) rsp = 0;
+
+	/* 4. argv 포인터 배열을 역순으로 push (argv[argc-1] → argv[0]).
+	 *    push 후 rsp == &argv[0] on stack. */
+	for (i = argc - 1; i >= 0; i--) {
+		rsp -= sizeof (uintptr_t);
+		*(uintptr_t *) rsp = arg_addr[i];
+	}
+
+	/* rsi = argv[] 배열 시작 주소를 지금 기록한다.
+	 * fake return address push 이후에는 rsp가 한 칸 더 내려가므로
+	 * (rsp+8)과 달리 여기서 캡처해야 argv[0] 포인터를 정확히 가리킨다. */
+	_if->R.rsi = (uint64_t) rsp;
+	_if->R.rdi = (uint64_t) argc;
+
+	/* 5. fake return address: main()의 반환 주소 자리를 0으로 채운다.
+	 *    실제로 main이 return하면 SYS_EXIT를 거치므로 값은 의미 없다. */
+	rsp -= sizeof (uintptr_t);
+	*(uintptr_t *) rsp = 0;
+
+	/* 6. 최종 rsp 반영 */
+	_if->rsp = (uintptr_t) rsp;
+}
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -166,6 +228,11 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	/* strtok_r 용 변수: file_name 페이지가 살아있는 동안 파싱 완료해야 한다. */
+	char *argv[ARGV_MAX];
+	int   argc = 0;
+	char *token, *save_ptr;
+
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
@@ -177,15 +244,28 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-	/* And then load the binary */
-	success = load (file_name, &_if);
+	/* 인자 파싱: strtok_r은 file_name을 in-place 수정하므로
+	 * palloc_free_page 이전에 수행한다.
+	 * argv[0] = 프로그램 이름, argv[1..] = 인자들. */
+	for (token = strtok_r (file_name, " ", &save_ptr);
+	     token != NULL && argc < ARGV_MAX;
+	     token = strtok_r (NULL, " ", &save_ptr))
+		argv[argc++] = token;
 
-	/* If load failed, quit. */
+	/* load()에는 프로그램 이름(argv[0])만 넘긴다.
+	 * 나머지 인자는 argument_stack()에서 유저 스택에 직접 쓴다. */
+	success = load (argv[0], &_if);
+
+	/* 파싱이 끝난 후에야 palloc 해제한다.
+	 * (argv[] 포인터들이 file_name 페이지를 가리키고 있기 때문) */
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
 
-	/* Start switched process. */
+	/* load()가 세팅한 _if.rsp(유저 스택 꼭대기)에 인자를 배치한다.
+	 * argument_stack()은 _if.rsp / _if.R.rdi / _if.R.rsi를 모두 채운다. */
+	argument_stack (argv, argc, &_if);
+
 	do_iret (&_if);
 	NOT_REACHED ();
 }
@@ -229,10 +309,11 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
+
+	/* 프로세스 종료 메시지: 테스트 프레임워크가 이 형식을 파싱한다.
+	 * 커널 스레드(idle 등)는 유저 프로세스가 아니므로 pml4가 NULL이면 생략. */
+	if (curr->pml4 != NULL)
+		printf ("%s: exit(%d)\n", curr->name, curr->exit_status);
 
 	process_cleanup ();
 }
