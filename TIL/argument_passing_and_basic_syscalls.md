@@ -397,3 +397,103 @@ PASS  args-dbl-space
 PASS  halt
 PASS  exit
 ```
+
+---
+
+## 12. wait 계열 테스트는 왜 아직 못 도는가
+
+세마포어 동기화로 stage 1 wait는 정식 구현했지만, **`wait-simple` 같은 wait 테스트는 여전히 실행조차 안 된다**. 팀 설명용 정리.
+
+### 12.1 우리가 만든 건 "커널 함수"이지 "유저 syscall"이 아니다
+
+```
+┌─────────────────────────────┐
+│ 유저 프로그램 (wait-simple.c)│
+│  fork("child-simple");      │   ← 이걸 호출하면
+│  wait(pid);                 │
+└──────────┬──────────────────┘
+           │ syscall instruction
+           ▼
+┌─────────────────────────────┐
+│ syscall_handler             │
+│  case SYS_FORK:  ?          │   ← 라우팅 없음
+│  case SYS_WAIT:  ?          │   ← 라우팅 없음
+│  case SYS_EXEC:  ?          │   ← 라우팅 없음
+└─────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────┐
+│ process_wait()  ✅ 구현 완료 │
+│ process_exit()  ✅ 구현 완료 │
+│ process_fork()  ❌ stub      │
+│ __do_fork()     ❌ TODO 천지 │
+└─────────────────────────────┘
+```
+
+`process_wait()` 자체는 작동하지만 **유저가 부를 입구가 막혀 있다**.
+
+### 12.2 wait 테스트는 자식 생성을 fork/exec에 의존
+
+`wait-simple.c`:
+```c
+if ((pid = fork ("child-simple"))) {
+    msg ("wait(exec()) = %d", wait (pid));
+} else {
+    exec ("child-simple");
+}
+```
+
+**3개 syscall이 모두 필요**:
+- `fork` → 자식 만들기
+- `exec` → 자식이 다른 프로그램 로드
+- `wait` → 부모가 자식 회수
+
+하나라도 없으면 테스트 진행 자체가 안 됨.
+
+### 12.3 `__do_fork`는 미완성 덩어리
+
+`process.c`에 골격만 있고 **TODO 천지**:
+
+```c
+/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+/* 3. TODO: Allocate new PAL_USER page for the child */
+/* 4. TODO: Duplicate parent's page */
+/* 6. TODO: if fail to insert page, do error handling. */
+/* TODO: somehow pass the parent_if. */
+/* TODO: Hint) To duplicate the file object, use file_duplicate */
+```
+
+페이지 테이블 복제, 파일 디스크립터 복제, 부모 `intr_frame` 전달 — 전부 미구현.
+
+### 12.4 그럼 args/halt/exit는 어떻게 통과했나
+
+이 7개 테스트는 **fork/exec/wait 없이도** 동작하는 구조다:
+
+```
+kernel main
+  → process_create_initd("args-none")
+  → thread_create(initd, ...)         ← 커널 내부 API
+  → initd 스레드 실행
+  → process_exec("args-none")         ← ELF 로드만, 자식 안 만듦
+  → 유저 프로그램 실행 → exit(0)
+  → kernel main의 process_wait(initd_tid)가 회수
+```
+
+자식 생성이 **kernel main 한 곳에서만**, 그것도 `thread_create` 직접 호출이라
+우리 동기화 인프라로 충분했다.
+
+`wait-*` 테스트는 **유저 → fork → 자식 생성** 경로라 `__do_fork`가 필수.
+
+### 12.5 한 줄 요약
+
+> wait의 **동기화 배관**은 깔았지만, 유저가 접근할 **수도꼭지(syscall handler)와 자식 생성기(fork)**가 아직 없어서 wait 테스트는 못 돈다.
+
+### 12.6 다음 단계 작업량 추정
+
+| 항목 | 예상 분량 |
+|---|---|
+| `SYS_WAIT` 라우팅 | 5줄 (`process_wait(f->R.rdi)` 호출) |
+| `SYS_EXEC` 라우팅 + 구현 | 30줄 (유저 포인터 검증 + filesys + load) |
+| `SYS_FORK` + `__do_fork` 완성 | 80~100줄 (page table 복제 + fd 복제 + parent_if 전달) |
+
+지금 7개 통과 → 다음으로 wait 계열 풀려면 **fork 구현이 가장 큰 고비**.
