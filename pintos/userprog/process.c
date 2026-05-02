@@ -191,24 +191,52 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (argv[0], &_if);
 
-	char *arg_addr[64];
-
-	for (int i = argc - 1; i >= 0; i--) {
-  	size_t len = strlen (argv[i]) + 1;
-  	_if.rsp -= len;
-  	memcpy ((void *) _if.rsp, argv[i], len);
-  	arg_addr[i] = (char *) _if.rsp;
+	/* If load failed, quit. */
+	if (!success) {
+		palloc_free_page (file_name);
+		return -1;
 	}
 
+	char *arg_addr[64];                 /* 유저 스택에 복사된 각 인자 문자열의 주소를 저장 */
 
-	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
-		return -1;
+	for (int i = argc - 1; i >= 0; i--) {       /* 마지막 인자부터 첫 번째 인자까지 거꾸로 처리 */
+		size_t len = strlen (argv[i]) + 1;      /* 문자열 길이 + 널 문자('\0') 크기 */
+		_if.rsp -= len;                         /* 스택은 아래로 자라므로 문자열 길이만큼 rsp를 내림 */
+		memcpy ((void *) _if.rsp, argv[i], len);/* 커널 argv[i] 문자열을 유저 스택 위치로 복사 */
+		arg_addr[i] = (char *) _if.rsp;         /* 복사된 유저 스택 주소를 저장 */
+	}
 
+	/* Align stack to 8 bytes. */
+	while (_if.rsp % 8 != 0) {                  /* rsp가 8의 배수가 될 때까지 정렬 */
+		_if.rsp--;                             /* 스택은 아래로 자라므로 1바이트 내림 */
+		*(uint8_t *) _if.rsp = 0;              /* 정렬용 패딩 바이트를 0으로 채움 */
+	}
+	
+	/* Push argv[argc] = NULL. */
+	_if.rsp -= sizeof (char *);                /* NULL 포인터 하나를 넣을 공간 확보 */
+	*(char **) _if.rsp = NULL;                 /* argv[argc] 자리에 NULL sentinel 저장 */
+	
+	/* Push argv[i] pointers. */
+	for (int i = argc - 1; i >= 0; i--) {      /* 마지막 인자 주소부터 거꾸로 저장 */
+		_if.rsp -= sizeof (char *);            /* 인자 문자열 주소 하나를 넣을 공간 확보 */
+		*(char **) _if.rsp = arg_addr[i];      /* argv[i]가 가리킬 유저 스택 문자열 주소 저장 */
+	}
+	
+	/* Save argv start address. */
+	char **argv_start = (char **) _if.rsp;     /* 현재 rsp가 argv[0] 위치 */
+	
+	/* Pass argc and argv to _start(argc, argv). */
+	_if.R.rdi = argc;                          /* 첫 번째 인자 rdi에 argc 전달 */
+	_if.R.rsi = (uint64_t) argv_start;         /* 두 번째 인자 rsi에 argv 시작 주소 전달 */
+
+	_if.rsp -= sizeof (void *);                /* fake return address 공간 확보 */
+	*(void **) _if.rsp = 0;                    /* 시작 함수는 돌아오지 않으므로 가짜 반환 주소 0 저장 */
+
+	palloc_free_page (file_name);              /* 커맨드라인 파싱용 커널 페이지 해제 */
+	
 	/* Start switched process. */
-	do_iret (&_if);
-	NOT_REACHED ();
+	do_iret (&_if);                            /* 준비한 intr_frame으로 유저 모드 진입 */
+	NOT_REACHED ();                            /* do_iret 이후 돌아오면 안 됨 */
 }
 
 
