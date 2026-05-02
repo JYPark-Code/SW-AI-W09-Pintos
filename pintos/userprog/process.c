@@ -18,13 +18,16 @@
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
+#include "devices/timer.h"
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
 
 static void process_cleanup (void);
-static bool load (const char *file_name, struct intr_frame *if_);
+static bool load (const char *file_name, struct intr_frame *if_,
+		int argc, char **argv);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
@@ -166,9 +169,22 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	char *argv[128];
+	char *token;
+	char *save_ptr;
+	int argc = 0;
+
+	for (token = strtok_r(file_name, " ", &save_ptr);
+     token != NULL;
+     token = strtok_r(NULL, " ", &save_ptr)) {
+    argv[argc] = token;
+    argc++;
+}
+
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
+
 	struct intr_frame _if;
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
@@ -178,7 +194,7 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (argv[0], &_if, argc, argv);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -219,9 +235,10 @@ process_exec (void *f_name) {
  *   확인용 스캐폴딩이며, multi-child 시나리오/정확한 exit code 반환은 이후 단계. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	struct semaphore stub;
-	sema_init(&stub, 0);
-	sema_down(&stub);
+	timer_sleep(100);
+	// struct semaphore stub;
+	// sema_init(&stub, 0);
+	// sema_down(&stub);
 	return -1;
 }
 
@@ -339,13 +356,15 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
 static bool
-load (const char *file_name, struct intr_frame *if_) {
+load (const char *file_name, struct intr_frame *if_, int argc, char **argv) {
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
 	struct file *file = NULL;
 	off_t file_ofs;
 	bool success = false;
 	int i;
+	(void) argc;
+	(void) argv;
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
