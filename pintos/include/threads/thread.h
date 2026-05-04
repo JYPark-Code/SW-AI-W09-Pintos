@@ -101,6 +101,9 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;             /* ready_list, sleep_list용 */
+	/* fd 테이블 */
+	struct file *fd_table[128];
+	int fd_next;   /* 다음 할당할 fd 번호, 2로 초기화 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

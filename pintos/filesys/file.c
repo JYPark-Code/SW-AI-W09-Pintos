@@ -5,9 +5,9 @@
 
 /* An open file. */
 struct file {
-	struct inode *inode;        /* File's inode. */
-	off_t pos;                  /* Current position. */
-	bool deny_write;            /* Has file_deny_write() been called? */
+	struct inode *inode;        /* File's inode. */ /* 실제 파일 데이터가 있는 곳 */
+	off_t pos;                  /* Current position. */ /* 현재 읽기/쓰기 위치 */
+	bool deny_write;            /* Has file_deny_write() been called? */ /* 쓰기 금지 여부 */
 };
 
 /* Opens a file for the given INODE, of which it takes ownership,

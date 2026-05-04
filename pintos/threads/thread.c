@@ -481,6 +481,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init (&t->wait_sema, 0);
 	sema_init (&t->exit_sema, 0);
 	t->parent = NULL;
+	t->fd_next = 2;  /* 0=stdin, 1=stdout 예약 */
 #endif
 	t->magic = THREAD_MAGIC;
 }

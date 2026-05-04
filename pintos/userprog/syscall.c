@@ -90,6 +90,39 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 
+		case SYS_OPEN: {
+			/*
+				1. filename 검증 (validate_user_addr)
+				2. filesys_open() 호출
+				3. 반환값이 NULL이면 → f->R.rax = -1
+				4. 성공이면 → fd_table[fd_next] = file
+				5. f->R.rax = fd_next
+				6. fd_next 증가
+			*/
+
+			const char  *filename = (const void *) f->R.rdi;
+
+			/* 유저 메모리 검증 */
+			validate_user_addr(filename);
+			lock_acquire(&filesys_lock);
+
+			struct file *file = filesys_open(filename);
+
+			if (file == NULL) {
+				f->R.rax = -1;
+				lock_release(&filesys_lock);
+				break;
+			} else {
+				thread_current()->fd_table[thread_current()->fd_next] = file;
+				f->R.rax = thread_current()->fd_next;
+				thread_current()->fd_next++;
+			}
+
+			lock_release(&filesys_lock);
+
+			break;
+		}
+
 		case SYS_WRITE: {
 			int            fd     = (int) f->R.rdi;
 			const void    *buffer = (const void *) f->R.rsi;
