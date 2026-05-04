@@ -163,7 +163,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 			lock_acquire(&filesys_lock);
 
-			if (fd < 2 || fd >= 128){
+			if (fd < 0 || fd >= 128){
+				/* 범위 밖 fd는 stdin/stdout 분기보다 먼저 차단해야
+				 * fd_table[음수] 같은 잘못된 인덱싱이 막힌다. */
 				f->R.rax = -1;
 				lock_release(&filesys_lock);
 				break;
@@ -237,11 +239,19 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 			lock_acquire(&filesys_lock);
 
+			/* fd_table[fd] 직전 범위 가드 — 음수/오버플로 fd로 인한 OOB 차단 */
+			if (fd < 2 || fd >= 128) {
+				f->R.rax = -1;
+				lock_release(&filesys_lock);
+				break;
+			}
+
 			struct file *file = thread_current()->fd_table[fd];
 			if (file == NULL) {
-					lock_release(&filesys_lock);
-					break;
-				}
+				f->R.rax = -1;
+				lock_release(&filesys_lock);
+				break;
+			}
 
 			f->R.rax = file_length(file);
 			lock_release(&filesys_lock);
