@@ -173,18 +173,26 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		}
 
 		case SYS_WRITE: {
-			int            fd     = (int) f->R.rdi;
+			int            fd     = (int)          f->R.rdi;
 			const void    *buffer = (const void *) f->R.rsi;
-			unsigned       size   = (unsigned) f->R.rdx;
+			unsigned       size   = (unsigned)     f->R.rdx;
 
 			validate_user_addr(buffer);
+			lock_acquire(&filesys_lock);
 
-			if (fd == 1) {
+			if (fd < 0 || fd >= 128) {
+				f->R.rax = (uint64_t) -1;
+			} else if (fd == 0) {
+				f->R.rax = (uint64_t) -1;
+			} else if (fd == 1) {
 				putbuf(buffer, size);
 				f->R.rax = size;
 			} else {
-				f->R.rax = (uint64_t) -1;
+				struct file *file = thread_current()->fd_table[fd];
+				f->R.rax = (file == NULL) ? (uint64_t) -1
+				                          : (uint64_t) file_write(file, buffer, size);
 			}
+			lock_release(&filesys_lock);
 			break;
 		}
 		default:
