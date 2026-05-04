@@ -1,11 +1,12 @@
-# 파일 시스템 콜 회고 — CREATE / OPEN / CLOSE / READ / FILESIZE
+# 파일 시스템 콜 회고 — CREATE / OPEN / CLOSE / READ / WRITE / FILESIZE
 
 > KAIST 64bit Pintos Project 2 — userprog 단계의 **파일 시스템 콜** 구현
 > 진행 기록. 콜이 추가될 때마다 이어서 정리한다.
 >
 > - **1차** (§0~§4): CREATE / OPEN / CLOSE — 인프라 설계 + 첫 3콜
 > - **2차** (§5): READ / FILESIZE — fd_table 활용 + 분기 처리의 함정
-> - **다음 예정**: WRITE 확장 (fd_table 경로) / REMOVE / SEEK / TELL
+> - **3차** (§6): WRITE 확장 — stage 0 stdout-only → fd_table 경로 추가, READ와 대칭
+> - **다음 예정**: REMOVE / SEEK / TELL — fd_table 두 단계 가드 패턴 그대로
 >
 > 콜의 본체는 `filesys_*` / `file_*` 한 줄이지만, 그 한 줄을 안전하게 부르려면
 > **유저 포인터 검증 / 전역 락 / per-thread fd 테이블** 세 인프라가 먼저
@@ -488,7 +489,8 @@ for (unsigned i = 0; i < size; i++)
 
 ## 5.B fd_table 접근의 일반 패턴
 
-CLOSE / READ / FILESIZE 모두 같은 두 단계 가드가 들어간다:
+CLOSE / READ / FILESIZE 모두 같은 두 단계 가드가 들어간다 (이후 §6의 WRITE
+fd_table 분기에서도 동일하게 적용):
 
 ```c
 /* 1단: 범위 체크 — 배열 인덱스로 쓰기 전에 */
@@ -501,8 +503,8 @@ if (file == NULL) return -1;            /* 또는 break */
 /* 이제 안전하게 file_* 호출 */
 ```
 
-이 두 단계는 **WRITE의 fd_table 분기**, 추후 **SEEK/TELL/REMOVE**에도 그대로
-복사된다. 세 번째로 같은 코드를 쓸 때 헬퍼로 뽑는 걸 고려.
+추후 **SEEK / TELL / REMOVE**에도 그대로 복사 예정. 다섯 번째로 같은 코드를
+쓸 때쯤이면 헬퍼로 뽑는 걸 고려.
 
 ---
 
