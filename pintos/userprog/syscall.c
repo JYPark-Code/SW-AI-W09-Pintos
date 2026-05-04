@@ -11,6 +11,7 @@
 #include "intrinsic.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "devices/input.h"      /* input_getc() — SYS_READ stdin 분기에서 사용 */
 
 /* 파일 시스템 락 선언 */
 struct lock filesys_lock;
