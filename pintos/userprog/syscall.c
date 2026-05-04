@@ -153,6 +153,45 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}
 
+		case SYS_READ: {
+			int            fd     = (int) f->R.rdi;
+			const void    *buffer = (const void *) f->R.rsi;
+			unsigned       size   = (unsigned) f->R.rdx;
+
+			/* stage 0: KERN_BASE 체크만 (요구사항대로 최소화) */
+			validate_user_addr(buffer);
+
+			lock_acquire(&filesys_lock);
+
+			if (fd < 2 || fd >= 128){
+				f->R.rax = -1;
+				lock_release(&filesys_lock);
+				break;
+			} else if (fd == 0) {
+				/* fd=0 (stdin) */
+				for(int i = 0; i < size; i++) {
+					((char *)buffer)[i] = input_getc(); // buffer에 저장
+				}
+				f->R.rax = size;
+				lock_release(&filesys_lock);
+				break; 
+			} else if(fd == 1){
+				f->R.rax = -1;
+				lock_release(&filesys_lock);
+				break;	
+			} else if(fd >= 2) {
+				/* fd_table에서 파일 찾아서 file_read() 호출 */
+				struct file *file = thread_current()->fd_table[fd];
+				if (file == NULL) {
+					lock_release(&filesys_lock);
+					break;
+				}
+				f->R.rax = file_read(file, buffer, size);
+				lock_release(&filesys_lock);
+			}
+			break;
+		}
+
 		case SYS_WRITE: {
 			int            fd     = (int) f->R.rdi;
 			const void    *buffer = (const void *) f->R.rsi;
@@ -174,6 +213,22 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				 * 호출은 허용하되 의미 있는 동작 없이 -1 반환. */
 				f->R.rax = (uint64_t) -1;
 			}
+			break;
+		}
+
+		case SYS_FILESIZE : {
+			int            fd     = (int) f->R.rdi;
+
+			lock_acquire(&filesys_lock);
+
+			struct file *file = thread_current()->fd_table[fd];
+			if (file == NULL) {
+					lock_release(&filesys_lock);
+					break;
+				}
+
+			f->R.rax = file_length(file);
+			lock_release(&filesys_lock);
 			break;
 		}
 
