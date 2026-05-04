@@ -10,6 +10,9 @@
 #include "threads/vaddr.h"      /* is_user_vaddr / KERN_BASE 사용 */
 #include "intrinsic.h"
 
+/* 파일 시스템 락 선언 */
+struct lock filesys_lock;
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -28,6 +31,8 @@ void syscall_handler (struct intr_frame *);
 
 void
 syscall_init (void) {
+
+	lock_init(&filesys_lock);
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
@@ -46,8 +51,11 @@ syscall_init (void) {
  * 언맵된 페이지/페이지 경계 걸침 등 정식 검증은 이후 단계에서 추가. */
 static void
 validate_user_addr (const void *uaddr) {
-	if (uaddr == NULL || !is_user_vaddr(uaddr))
-		thread_exit();
+    if (uaddr == NULL || !is_user_vaddr(uaddr)
+        || pml4_get_page(thread_current()->pml4, uaddr) == NULL) {
+        thread_current()->exit_status = -1;
+        thread_exit();
+    }
 }
 
 /* x86-64 syscall ABI (KAIST 기준)
@@ -59,21 +67,27 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t sysno = f->R.rax;
 
 	switch (sysno) {
-		case SYS_HALT:
-			/* 머신을 즉시 종료한다.
-			 * power_off()는 QEMU/Bochs에 shutdown 신호를 보내며 NO_RETURN이다. */
-			power_off ();
-			NOT_REACHED ();
+		/* 파일 관련 */
+		case SYS_CREATE: {
 
-		case SYS_EXIT: {
-			/* rdi에 담긴 종료 코드를 thread 구조체에 저장한 뒤 종료한다.
-			 * exit_status는 process_wait()가 회수할 때 쓰이며,
-			 * process_exit()의 종료 메시지 출력에도 사용된다.
-			 * thread_exit()가 process_exit()를 호출하므로 별도 호출 불필요. */
-			int status = (int) f->R.rdi;
-			thread_current ()->exit_status = status;
-			thread_exit ();
-			NOT_REACHED ();
+			const char  *filename = (const void *) f->R.rdi;
+			unsigned       size   = (unsigned) f->R.rsi;
+			
+			/* 유저 메모리 검증 */
+			validate_user_addr(filename);
+			
+			/* 파일 시스템 전용 lock */
+			lock_acquire(&filesys_lock);
+
+			/* 2. filesys_create 호출 */
+			bool success = filesys_create(filename, size);
+
+			lock_release(&filesys_lock);
+
+			/* 3. 반환값 세팅 */
+			f->R.rax = success;
+
+			break;
 		}
 
 		case SYS_WRITE: {
@@ -99,6 +113,25 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 			break;
 		}
+
+		/* 프로세스 관련 */
+		case SYS_HALT:
+			/* 머신을 즉시 종료한다.
+			 * power_off()는 QEMU/Bochs에 shutdown 신호를 보내며 NO_RETURN이다. */
+			power_off ();
+			NOT_REACHED ();
+
+		case SYS_EXIT: {
+			/* rdi에 담긴 종료 코드를 thread 구조체에 저장한 뒤 종료한다.
+			 * exit_status는 process_wait()가 회수할 때 쓰이며,
+			 * process_exit()의 종료 메시지 출력에도 사용된다.
+			 * thread_exit()가 process_exit()를 호출하므로 별도 호출 불필요. */
+			int status = (int) f->R.rdi;
+			thread_current ()->exit_status = status;
+			thread_exit ();
+			NOT_REACHED ();
+		}
+
 		default:
 			/* 아직 라우팅 안 된 시스템 콜.
 			 * 디버깅 가시성을 위해 한 줄 찍고 종료. */
