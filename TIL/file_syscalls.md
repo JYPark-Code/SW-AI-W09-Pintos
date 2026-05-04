@@ -506,26 +506,134 @@ if (file == NULL) return -1;            /* 또는 break */
 
 ---
 
-## 6. 다음 단계로 미룬 것들
+## 6. 후속 — SYS_WRITE 확장
 
-- **WRITE 확장** — 현재 `fd == 1` (stdout) 분기만 있음. fd_table 경로(`file_write`)
-  추가해야 함. READ 골격을 그대로 미러링하면 됨.
-- **SEEK / TELL / REMOVE** — `file_seek` / `file_tell` / `filesys_remove` 한 줄
-  래퍼. 위의 fd_table 두 단계 가드 패턴 그대로.
+stage 0에서는 `fd == 1` (stdout)만 `putbuf`로 처리하고 나머지는 -1로 떨궜다.
+이번 단계에서 **fd_table 경로**(`file_write`)를 붙여 완전한 구현으로 마무리.
+READ 골격을 그대로 미러링하면 되는 작업이라 새로 배운 건 적지만, **READ와의
+대칭 구조가 명확해진** 게 가장 큰 수확이다.
+
+### 6.1 READ ↔ WRITE — 방향만 다른 대칭
+
+| fd 케이스 | SYS_READ | SYS_WRITE |
+|---|---|---|
+| `fd < 0` 또는 `fd >= 128` | -1 (범위 차단) | -1 (범위 차단) |
+| `fd == 0` (stdin) | `input_getc()` 폴링 → size | -1 (쓰기 금지) |
+| `fd == 1` (stdout) | -1 (읽기 금지) | `putbuf()` → size |
+| `fd >= 2` | `file_read(file, buffer, size)` | `file_write(file, buffer, size)` |
+
+**읽기·쓰기는 방향만 다르고 골격이 동일하다.** 4단 분기, fd_table 두 단계
+가드(`§5.B`), 락 잡는 위치까지 전부 같다. stdin/stdout 행은 서로 거울상이
+되는데, 이게 POSIX의 "stream은 양방향이지만 stdin은 read-only / stdout은
+write-only"라는 규약과 정확히 맞는다.
+
+### 6.2 코드
+
+```c
+case SYS_WRITE: {
+    int            fd     = (int)            f->R.rdi;
+    const void    *buffer = (const void *)   f->R.rsi;
+    unsigned       size   = (unsigned)       f->R.rdx;
+
+    validate_user_addr(buffer);
+    lock_acquire(&filesys_lock);
+
+    if (fd < 0 || fd >= 128) {
+        f->R.rax = -1;
+    } else if (fd == 0) {                 /* stdin → 쓰기 금지 */
+        f->R.rax = -1;
+    } else if (fd == 1) {                 /* stdout → putbuf */
+        putbuf(buffer, size);
+        f->R.rax = size;
+    } else {                              /* fd >= 2 → fd_table */
+        struct file *file = thread_current()->fd_table[fd];
+        f->R.rax = (file == NULL) ? -1 : file_write(file, buffer, size);
+    }
+    lock_release(&filesys_lock);
+    break;
+}
+```
+
+> stage 0에서 작성했던 `fd == 1`의 `putbuf` 한 줄이 그대로 분기 한 가지로
+> 흡수됐다. 새 작업이 기존 코드를 폐기하지 않고 **완전한 구현의 일부**로
+> 자리잡는 가장 깔끔한 시나리오.
+
+### 6.3 분기 순서가 만드는 미세한 의미
+
+`fd == 0`을 `fd < 0 || fd >= 128` 다음에 배치한 이유: 음수가 먼저 걸러지면
+이후 분기에서 fd가 unsigned-안전한 양수임이 보장된다. 그 위에서 `fd == 0`
+체크는 **stdin 의도가 분명한 케이스**만 잡는다. 이 순서를 뒤집으면(`fd == 0`
+먼저), 음수 fd는 다음 분기로 흘러가 버리는 위험이 생긴다 — READ에서 겪었던
+함정(§3 함정 5)과 같은 패턴.
+
+### 6.4 락 위치 — 분기 전에 한 번, 분기마다 release
+
+stage 0의 WRITE는 `fd == 1` 한 갈래만 있어 락이 필요 없었지만, fd_table
+경로가 들어간 순간 락은 필수. 위치 선택지는:
+
+1. ❌ 분기마다 따로 잡기 — 코드 중복, 누락 위험
+2. ✅ **분기 전에 한 번 잡고 모든 분기에서 release** — 현재 구조
+
+stdout 분기에서 `putbuf` 자체는 내부 console lock으로 보호되지만, **fd_table
+조회와 같은 락 안에 두는 게 동시성 모델이 단순해진다** (다른 스레드가 같은
+파일을 동시에 close/write할 가능성 차단).
+
+---
+
+## 6.A WRITE 확장의 짧은 함정 한 가지
+
+### 함정 8 — fd == 0 분기에서 락 release를 빼먹기 쉽다
+
+stage 0 시절 코드는 `if (fd == 1) {...} else { rax = -1; }` 두 갈래라 break
+하나만 있어도 빠져나갔다. 4분기로 늘어나면서 **각 갈래에서 락 release를
+재확인**해야 한다.
+
+```c
+} else if (fd == 0) {
+    f->R.rax = -1;
+    lock_release(&filesys_lock);     /* ← 빠뜨리기 쉬움 */
+    break;
+}
+```
+
+코드 양은 같지만 분기가 많아질수록 누락 가능성이 비례 증가. 차라리 **분기
+끝에서 한 번에 release**하는 패턴이 안전:
+
+```c
+lock_acquire(&filesys_lock);
+if (...) { f->R.rax = -1; }
+else if (...) { ... }
+...
+lock_release(&filesys_lock);     /* 한 곳에서만 */
+break;
+```
+
+WRITE 최종 코드(§6.2)가 이 형태. 각 분기에서 `break` 대신 **rax만 세팅하고
+하나의 release를 통과**하게 만들면 누락이 구조적으로 불가능해진다.
+
+---
+
+## 7. 다음 단계로 미룬 것들
+
+- **REMOVE / SEEK / TELL** — `filesys_remove` / `file_seek` / `file_tell`
+  한 줄 래퍼. §5.B의 fd_table 두 단계 가드 패턴 그대로 적용.
 - **fd 슬롯 재사용** — `fd_next` 단조 증가는 누수 발생. 빈 슬롯 스캔으로 변경.
 - **per-thread 락 / inode 단위 락** — 현재 굵은 락의 성능 이슈.
 - **buffer 검증의 페이지 경계 처리** — `validate_user_addr`은 한 바이트만
   검사. READ/WRITE의 `(buffer, size)` 전 구간을 페이지마다 재검증해야 함.
-  현재 READ는 buffer 시작 1바이트만 검증 중.
+- **WAIT 라우팅 / EXEC / FORK** — 파일 콜이 끝났으니 프로세스 콜로 진입.
+  Project 3 진입 전 마무리해야 할 마지막 P2 영역.
 
 ---
 
-## 7. 한 줄 요약
+## 8. 한 줄 요약
 
 > 파일 시스템 콜 구현의 무게중심은 **`filesys_*` 한 줄**이 아니라
 > **그 한 줄을 부르기 전·후의 인프라**(유저 포인터 3단 검증 / 전역 락 /
 > per-thread fd 테이블)에 있다. 인프라를 먼저 깔면 콜은 같은 골격으로
 > 찍어낼 수 있고, 64bit Pintos의 함정(KERN_BASE / implicit-decl /
 > 분기별 락 누수 / 음수 fd의 배열 침범)은 이 인프라 단계에서 한꺼번에 잡힌다.
-> READ 단계의 추가 교훈은 **"배열 인덱스 가드는 분기 트리의 가장 위에"**
-> 와 **"unhandled syscall: N → syscall-nr.h enum 역추적"** 두 가지.
+> 시리즈 전체의 교훈 셋: **(a) 배열 인덱스 가드는 분기 트리의 가장 위에**,
+> **(b) unhandled syscall: N → `syscall-nr.h` enum 역추적**, **(c) READ와
+> WRITE는 방향만 다르고 골격이 동일** — 한 콜을 잘 짜놓으면 다음 콜은
+> 미러링이 된다.
