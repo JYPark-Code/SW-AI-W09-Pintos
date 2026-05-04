@@ -9,6 +9,8 @@
 #include "threads/flags.h"
 #include "threads/vaddr.h"      /* is_user_vaddr / KERN_BASE 사용 */
 #include "intrinsic.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
 
 /* 파일 시스템 락 선언 */
 struct lock filesys_lock;
@@ -119,6 +121,34 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 
 			lock_release(&filesys_lock);
+
+			break;
+		}
+
+		case SYS_CLOSE: {
+			/* 
+				1. file_close(file) 호출
+				2. fd_table[fd] = NULL	
+			*/
+
+			uint64_t fd = (uint64_t) f->R.rdi;
+
+			lock_acquire(&filesys_lock);
+
+			/* int 범위 체크 */
+			if (fd < 2 || fd >= 128) {
+				lock_release(&filesys_lock);
+				break;
+			} else {
+				struct file *file = thread_current()->fd_table[fd];
+				if (file == NULL) {
+					lock_release(&filesys_lock);
+					break;
+				}
+				file_close(file);
+				thread_current()->fd_table[fd] = NULL;
+			}
+			lock_release(&filesys_lock);		
 
 			break;
 		}
