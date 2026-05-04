@@ -163,9 +163,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 			lock_acquire(&filesys_lock);
 
-			if (fd < 0 || fd >= 128){
-				/* 범위 밖 fd는 stdin/stdout 분기보다 먼저 차단해야
-				 * fd_table[음수] 같은 잘못된 인덱싱이 막힌다. */
+			if (fd < 2 || fd >= 128){
 				f->R.rax = -1;
 				lock_release(&filesys_lock);
 				break;
@@ -176,11 +174,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				}
 				f->R.rax = size;
 				lock_release(&filesys_lock);
-				break;
+				break; 
 			} else if(fd == 1){
 				f->R.rax = -1;
 				lock_release(&filesys_lock);
-				break;
+				break;	
 			} else if(fd >= 2) {
 				/* fd_table에서 파일 찾아서 file_read() 호출 */
 				struct file *file = thread_current()->fd_table[fd];
@@ -202,7 +200,18 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			/* stage 0: KERN_BASE 체크만 (요구사항대로 최소화) */
 			validate_user_addr(buffer);
 
-			if (fd == 1) {
+			lock_acquire(&filesys_lock);
+
+			if (fd < 0 || fd >= 128){
+				f->R.rax = -1;
+				lock_release(&filesys_lock);
+				break;
+			} else if(fd == 0){
+				f->R.rax = -1;
+				lock_release(&filesys_lock);
+				break;	
+			} 
+			else if (fd == 1) {
 				/* fd=1 (stdout): putbuf로 콘솔 출력.
 				 *   - putbuf는 내부 console lock으로 한 호출분을 보호하여
 				 *     다른 출력과 섞이지 않는다.
@@ -210,10 +219,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 				 *     이게 없으면 유저 프로그램의 모든 출력이 사라진다. */
 				putbuf(buffer, size);
 				f->R.rax = size;     /* 쓴 바이트 수 반환 (stdout은 size 그대로) */
-			} else {
-				/* fd != 1 은 stage 0 범위 밖.
-				 * 호출은 허용하되 의미 있는 동작 없이 -1 반환. */
-				f->R.rax = (uint64_t) -1;
+				lock_release(&filesys_lock);
+			} else if (fd >= 2) {
+				struct file *file = thread_current()->fd_table[fd];
+				if (file == NULL) {
+					lock_release(&filesys_lock);
+					break;
+				}
+				f->R.rax = file_write(file, buffer, size);
+				lock_release(&filesys_lock);
 			}
 			break;
 		}
@@ -223,19 +237,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 			lock_acquire(&filesys_lock);
 
-			/* fd_table[fd] 직전 범위 가드 — 음수/오버플로 fd로 인한 OOB 차단 */
-			if (fd < 2 || fd >= 128) {
-				f->R.rax = -1;
-				lock_release(&filesys_lock);
-				break;
-			}
-
 			struct file *file = thread_current()->fd_table[fd];
 			if (file == NULL) {
-				f->R.rax = -1;
-				lock_release(&filesys_lock);
-				break;
-			}
+					lock_release(&filesys_lock);
+					break;
+				}
 
 			f->R.rax = file_length(file);
 			lock_release(&filesys_lock);
