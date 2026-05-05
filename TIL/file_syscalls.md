@@ -1,16 +1,24 @@
-# 파일 시스템 콜 회고 — CREATE / OPEN / CLOSE / READ / WRITE / FILESIZE
+# Project 2 userprog 시스템 콜 회고 — 인프라부터 EXEC 까지
 
-> KAIST 64bit Pintos Project 2 — userprog 단계의 **파일 시스템 콜** 구현
-> 진행 기록. 콜이 추가될 때마다 이어서 정리한다.
+> KAIST 64bit Pintos Project 2 — userprog 단계 시스템 콜 전체의 진행 기록.
+> 콜이 추가될 때마다 이어서 정리해 왔고, 현재 **CREATE / OPEN / CLOSE /
+> READ / WRITE / FILESIZE / FORK / WAIT / EXEC** 까지 들어와 있다.
 >
-> - **1차** (§0~§4): CREATE / OPEN / CLOSE — 인프라 설계 + 첫 3콜
-> - **2차** (§5): READ / FILESIZE — fd_table 활용 + 분기 처리의 함정
-> - **3차** (§6): WRITE 확장 — stage 0 stdout-only → fd_table 경로 추가, READ와 대칭
-> - **다음 예정**: REMOVE / SEEK / TELL — fd_table 두 단계 가드 패턴 그대로
+> | 단계 | 섹션 | 콜 | 무게중심 |
+> |---|---|---|---|
+> | 1차 | §0~§4 | CREATE / OPEN / CLOSE | 인프라 설계 + 첫 3콜 |
+> | 2차 | §5 | READ / FILESIZE | fd_table 활용 + 분기 처리 함정 |
+> | 3차 | §6 | WRITE 확장 | stage 0 stdout-only → fd_table, READ 와 대칭 |
+> | 4차 | §7 | FORK / WAIT | 자료구조 + 부모-자식 동기화 (sema 패턴) |
+> | 5차 | §8 | EXEC | 함수 간 책임 분배 (`exec-missing` 시행착오 7회) |
+> | 다음 | §9 | REMOVE / SEEK / TELL, fd 슬롯 재사용, 페이지 경계 검증 등 |
 >
-> 콜의 본체는 `filesys_*` / `file_*` 한 줄이지만, 그 한 줄을 안전하게 부르려면
-> **유저 포인터 검증 / 전역 락 / per-thread fd 테이블** 세 인프라가 먼저
-> 깔려 있어야 한다는 것이 시리즈를 관통하는 교훈.
+> **시리즈를 관통하는 교훈은 무게중심이 단계마다 바뀐다는 것**이다.
+> §1~§6 (파일 콜) 의 무게중심은 **콜의 안전망** — 유저 포인터 3 단 검증 /
+> 전역 락 / per-thread fd 테이블 — 이고, 콜 본체는 `filesys_*` / `file_*`
+> 한 줄에 불과했다. §7 (FORK/WAIT) 부터는 무게중심이 **자료구조 + 동기화**
+> 로 옮겨가고, §8 (EXEC) 에선 다시 **함수 간 책임 분배** (4 함수가 한
+> 시맨틱을 향해 정렬되어야 함) 로 이동한다. 한 줄 요약은 §10 에 있다.
 
 ---
 
@@ -52,8 +60,9 @@ t->fd_next = 2;   /* 0=stdin, 1=stdout 예약 */
 ```
 
 - **per-process가 아니라 per-thread**에 둔 이유: Pintos는 process 1개 = thread
-  1개라는 단순한 구조라 thread struct에 그대로 박는 게 자연스럽다. 추후 fork가
-  생기면 `__do_fork`에서 부모 fd_table을 자식에 복제하는 식으로 확장.
+  1개라는 단순한 구조라 thread struct에 그대로 박는 게 자연스럽다. 이후
+  FORK 가 추가되며 `__do_fork` 가 부모 fd_table 을 슬롯별로 `file_duplicate`
+  로 복사하는 패턴으로 자연스럽게 확장됐다 (§7.4).
 - **고정 배열(`fd_table[128]`)**: 동적 할당하면 `thread_create`/`process_exit`
   마다 alloc/free가 생긴다. 일단은 단순함을 택하고, 한계가 드러나면 나중에
   확장.
@@ -343,18 +352,19 @@ OS 코드의 70%는 이 "안전망"이라는 게 와닿았다.
 문서를 읽을 때 "32bit Pintos 자료를 그대로 가져다 쓰면 안 된다"는 점을
 계속 의식해야 한다.
 
-### (d) 락은 정확성, 분리는 성능 — 지금은 정확성
+### (d) 락은 정확성, 분리는 성능 — 일단은 정확성
 
 전역 `filesys_lock` 하나로 모든 파일 콜을 직렬화하는 건 **느리다**. 두 프로세스가
-서로 다른 파일을 열어도 직렬화돼 버린다. 그래도 일단 이 굵은 락으로 시작한
-이유:
+서로 다른 파일을 열어도 직렬화돼 버린다. 그래도 굵은 락으로 시작한 이유:
 
 1. Pintos 기본 파일시스템 자체가 internal locking이 없어서, 미세하게 쪼개려면
-   파일시스템 코드를 같이 손봐야 함 → 다음 단계 작업량.
-2. 지금 단계 테스트는 동시성보다 **정확성**(open이 정확한 fd를 돌려주는지,
+   파일시스템 코드를 같이 손봐야 함 → 별도 작업량.
+2. 파일 콜 단계 테스트는 동시성보다 **정확성**(open이 정확한 fd를 돌려주는지,
    close가 슬롯을 비우는지)을 본다.
 
-성능 최적화는 기능이 다 들어간 다음.
+이 굵은 락은 §5~§6 (READ/WRITE) 추가에도 그대로 재사용됐고, §7 FORK 와
+§8 EXEC 에서도 파일 콜 부분에 한해 동일하게 유지된다. 성능 최적화는
+P3/P4 단계의 작업.
 
 ---
 
