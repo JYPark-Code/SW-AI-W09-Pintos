@@ -9,23 +9,59 @@
 
 ---
 
-## 1. 무엇이 보였나
+## 1. 사건의 시작 — devcontainer 에서 시작한 리포를 Windows 에서 열기
 
-머지 PR을 열면 변경하지도 않은 파일이 통째로 modified로 잡혔다. 대표 증상:
+### 타임라인
 
-- `git diff <PR>` 가 **수만 라인**의 +/- 로 도배됨
-- 정작 의미 있는 코드 변경은 그 안에 묻혀 보이지 않음
-- 한 쪽 OS에서 보면 깨끗한데, 다른 OS(특히 Windows git bash)에서 보면 "all modified"
-- 같은 리포를 두 사람이 각각 클론했을 때 `git status` 결과가 다름
+| 날짜 | 커밋 | 누가 | 무슨 일 |
+|---|---|---|---|
+| 2026-04-23 | `154a0f7` | jypark | **dev container (Linux) 안에서 `git init`** 으로 프로젝트 시작 |
+| 2026-04-24 | `127b8f6` | IMGyuGo | **같은 폴더를 Windows 측에서 열어보고** "all modified" 마주함 → 즉시 `Normalize line endings to LF` 로 1차 fix 시도 |
+| 2026-04-24 ~ 2026-05-01 | (여러 PR) | 팀 전체 | PR 머지마다 같은 노이즈 재발 — 1차 정규화로는 봉인 안 됨 |
+| 2026-05-01 | `bc3d912` | jypark | `.gitattributes` 추가 (본격 fix, 아래 §5 참조) |
 
-타임라인 (커밋 기준):
-- `127b8f6 (2026-04-24) Normalize line endings to LF` — IMGyuGo: 1차 시도
-- `bc3d912 (2026-05-01) chore: 줄 끝 정규화용 .gitattributes 추가` — jypark: 본격 fix
-- `.git/config` 에 `core.filemode=false` 추가 — 권한 차이도 별도로 봉인
+### 무슨 일이 일어났나 — 기술 분석
+
+**dev container = Linux 환경**. 그 안에서 `git init` + `git add` 하면 인덱스에 다음과 같이 박힌다:
+- 줄 끝: **LF** 그대로 (Linux 기본, 변환 없음)
+- 모드: 실제 파일 권한 그대로 (이 리포는 mount 환경 영향으로 대부분 `100755` 로 들어감 — 자세한 건 §3 원인 B)
+
+**같은 폴더를 Windows 측에서 열기** (WSL 마운트 `\\wsl.localhost\<distro>\workspaces\...` 또는 Windows 호스트 마운트 경유):
+
+작업 트리 파일 자체는 한 바이트도 안 변했다. 그러나 Windows 위의 git (특히 git bash) 이 그 폴더에서 작동할 때, **Windows 기본 git 설정** 이 적용된다:
+
+1. **`core.autocrlf=true`** (Windows git installer 기본값)
+   → "working tree 는 CRLF 여야 한다" 고 기대
+   → 실제 파일은 LF
+   → 모든 텍스트 파일이 modified 로 잡힘
+2. **`core.filemode`** 자동 감지
+   → 인덱스의 `100755` vs 작업 트리에서 보이는 권한 차이
+   → mode change 로 또 modified
+
+**결과**: 작업 트리는 그대로인데 `git status` 가 리포 전체를 빨간 modified 로 도배 → 위 hero 이미지 같은 화면.
+
+### 핵심 한 줄
+
+> **"같은 git 리포를 두 OS 에서 다루기 시작한 순간"** 이 모든 노이즈의 출발점이다.
+>
+> dev container (Linux) 와 Windows native git 의 기본값 차이 — 줄 끝 자동 변환 + 권한 비트 — 가 표면화된 것이고, 이건 **누군가의 실수가 아니라 환경의 충돌**이다.
 
 ---
 
-## 2. 두 원인을 분리해서 진단
+## 2. 무엇이 보였나 (PR 단계의 2차 증상)
+
+§1 의 초기 사건 이후, **PR 머지 단계에서도 같은 노이즈가 다른 형태로 재발**했다:
+
+- 머지 PR 을 열면 변경하지도 않은 파일이 통째로 modified 로 잡힘
+- `git diff <PR>` 가 **수만 라인**의 +/- 로 도배됨 → 의미 있는 코드 변경이 그 안에 묻혀 보이지 않음
+- 같은 리포를 두 사람이 각각 클론했을 때 `git status` 결과가 다름 → 리뷰가 불가능
+- 한 쪽 OS 에서 봤을 땐 깨끗한데 다른 OS 에서 보면 "all modified" — 머지 가능 여부가 OS 에 따라 달라지는 비정상 상태
+
+이 시점에서 IMGyuGo 의 1차 정규화 (`127b8f6`) 만으로는 불충분하다는 게 분명해졌다. 새 파일이 Windows 측에서 add 되면 다시 CRLF 가 인덱스에 박혔고, 권한 비트 노이즈는 아예 손도 안 댄 상태였기 때문이다.
+
+---
+
+## 3. 두 원인을 분리해서 진단
 
 ### 원인 A — CRLF/LF (줄 끝 문자)
 
@@ -43,7 +79,7 @@
 
 ---
 
-## 3. 재현 (시연 캡쳐)
+## 4. 재현 (시연 캡쳐)
 
 > 샌드박스: `/tmp/git-noise-demo/{stage1..stage4}` — 각각 fresh clone.
 > 모든 스테이지는 먼저 `.gitattributes` 를 제거해 봉인을 해제한 상태에서 시작한다.
@@ -178,7 +214,7 @@ index d9fd618..3448ca7$
 
 ---
 
-## 4. 적용된 fix
+## 5. 적용된 fix
 
 ### A. `.gitattributes` 추가 (커밋 `bc3d912`)
 
@@ -219,7 +255,7 @@ git rm --cached -r . && git reset --hard   # 작업 트리 재정렬
 
 ---
 
-## 5. 발표용 요약 슬라이드
+## 6. 발표용 요약 슬라이드
 
 > **사건 한 줄**: "PR diff 가 23,517 라인으로 폭발해서 코드 리뷰가 불가능했다."
 >
@@ -239,7 +275,7 @@ git rm --cached -r . && git reset --hard   # 작업 트리 재정렬
 
 ---
 
-## 6. 부록 — 시연 직접 돌려보기
+## 7. 부록 — 시연 직접 돌려보기
 
 샌드박스 클론은 `/tmp/git-noise-demo/{stage1-baseline, stage2-crlf, stage3-filemode, stage4-both}` 에 살아 있다. `git status`, `git diff`, `cat -A` 등으로 직접 확인 가능. 정리는:
 
