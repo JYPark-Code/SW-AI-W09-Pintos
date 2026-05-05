@@ -1,0 +1,2157 @@
+=== 진행도 컨텍스트 (다른 web UI Claude 채팅에 전달용) ===
+
+[현재 상태]
+- 브랜치: jypark (개인 작업 브랜치, HEAD = cdad0cf)
+- 단계: Pintos Project 1 — alarm clock + priority scheduling + priority donation 모두 구현 완료
+- priority 관련 테스트 18개 전부 PASS
+  pass: alarm-single, alarm-multiple, alarm-simultaneous, alarm-zero, alarm-negative, alarm-priority,
+        priority-change, priority-fifo, priority-preempt, priority-sema, priority-condvar,
+        priority-donate-one, priority-donate-multiple, priority-donate-multiple2, priority-donate-nest,
+        priority-donate-lower, priority-donate-sema, priority-donate-chain
+
+[현재 열려있는 PR]
+- PR #49: C+D → main (psgus + jypark 공동, alarm clock + priority sema/condvar 통합본)
+- PR #50: jypark-priority-donation → main (donation 단독)
+  ※ PR #49가 머지되기 전까지 #50의 diff에는 alarm+priority sync 코드도 같이 잡힘
+- 직전에 정책상 잘못 올렸던 PR #48(cd-priority-merged 브랜치명) 은 close하고 #49로 다시 올림
+
+[브랜치 구조 메모]
+- main: 거의 비어있음(README만)
+- C+D: cd-priority-merged에서 옮겨온 통합본 (PR #49의 head)
+- A+B: 다른 페어 (priority-change/fifo/preempt 영역)
+- jypark-priority-donation: 코드는 jypark과 동일하나 TIL/테스트유틸 제외 정책 적용 (PR #50의 head)
+- jypark: 본인 메인 작업 브랜치 (TIL+테스트유틸 포함, 본 diff 기준)
+
+[제외된 항목 — diff에 없으니 참고만]
+- pintos-util-main/ : 외부 테스트 유틸리티 vendoring 디렉토리. select_test.sh가 filesys/threads/userprog/vm 4곳에 동일하게 복제되어 있고, .test_config로 어떤 테스트만 돌릴지 선택. 실제 pintos 커널 로직과 무관.
+- pintos/threads/select_test.sh, pintos/threads/.test_config, pintos/threads/.test_status : 위 도구의 작업 디렉토리 사본/실행 결과 캐시
+- .vscode/launch.json : VS Code QEMU debug 설정 (pintos-util-main/launch.json 와 동일)
+- 모두 코드 변화가 아니라 개인 학습/디버깅 환경 세팅이므로 의도적으로 제외함
+
+[정책 메모 — pr_policy.md 발췌]
+원래 흐름: alarm-clock 4개 → A+B와 C+D를 integration 브랜치에서 합치기 → integration → main → donation 4개 → main
+실제 진행: 회의 결정으로 integration 단계 생략, A+B와 C+D 페어가 각자 main으로 직행하기로 함
+
+[알려진 이슈/대기 사항]
+- PR #50의 diff는 PR #49 머지 후 자동으로 donation-only로 좁혀짐
+- mlfqs 영역은 본 프로젝트 단계 범위 밖이라 미구현 (시간 충분하면 후속)
+
+=== 이하 git diff origin/main HEAD (코드 + TIL만) ===
+
+diff --git a/README.md b/README.md
+index be02be8..8555721 100755
+--- a/README.md
++++ b/README.md
+@@ -184,3 +184,82 @@ git push -u origin main
+ - `git push`: 새로운 리포에 최초 업로드(Push)합니다.
+ 
+ 이 과정을 거치면 기존 리포와의 연결은 완전히 제거되고, **새로운 독립적인 프로젝트로 관리**할 수 있습니다.
++
++---
++
++## 9. 테스트 최적화 도구 (select_test.sh) 사용법
++
++`pintos-util-main` 기반의 테스트 선택 실행기입니다. 원하는 테스트만 골라 돌리고, PASS/FAIL 결과를 캐싱하여 메뉴에 색으로 표시합니다.
++
++### 📂 설치 위치
++
++| 파일 | 위치 |
++|------|------|
++| `launch.json` | `.vscode/launch.json` (워크스페이스 루트) |
++| `select_test.sh`, `.test_config` | `pintos/threads/`, `pintos/userprog/`, `pintos/vm/` 각 프로젝트 폴더 |
++
++> Threads 프로젝트는 이미 설치되어 있습니다. UserProgram/VM은 진입 시 아래 "다른 프로젝트 진입 시 설치"를 참고하세요.
++
++### 🚀 기본 명령어 (Threads 기준)
++
++```bash
++cd pintos/threads
++
++# 1) 테스트 결과만 확인 (배치 실행, GDB 미사용)
++./select_test.sh -q
++
++# 2) 코드를 수정한 뒤 재빌드 + 실행
++./select_test.sh -q -r
++
++# 3) VSCode + GDB 디버깅 모드 (중단점 사용)
++./select_test.sh -g -r
++
++# 4) 통과/실패 캐시(색상 표시) 초기화
++rm .test_status
++```
++
++- `-q` : quick, 배치 모드 (디버거 미사용)
++- `-g` : gdb stub 모드, VSCode "Pintos Debug" 디버그를 함께 시작
++- `-r` : rebuild, `make clean && make all -j$(nproc)`로 재빌드 후 실행
++
++### 🖱️ 테스트 선택 방법
++
++스크립트 실행 후 메뉴가 뜨면 번호를 공백/하이픈으로 입력합니다.
++
++```
++Enter test numbers (e.g. '1 3 5' or '2-4'): 1-5 9 11-13
++```
++
++→ {1, 2, 3, 4, 5, 9, 11, 12, 13}번 테스트가 순차 실행됩니다.
++
++- 🟢 초록 = 이전에 PASS / 🔴 빨강 = 이전에 FAIL / 흰색 = 미실행
++- 결과는 `.test_status`에 자동 저장
++
++### 🐞 GDB 디버깅 흐름 (`-g`)
++
++1. C 코드에 중단점(F9) 설정
++2. `./select_test.sh -g -r` 실행 → 테스트 번호 입력
++3. QEMU가 `localhost:1234`에서 대기하면 VSCode 좌측 디버그 패널에서 해당 주차 디버그 구성 선택 후 ▶ 실행
++   - `[Week 9] Threads Debug`
++   - `[Week 10-11] User Program Debug`
++   - `[Week 12-13] VM Debug`
++4. 여러 테스트를 연속 디버그하면 다음 테스트 시작 시 디버그 ▶ 버튼을 다시 눌러줍니다.
++
++### 🛠️ 다른 프로젝트 진입 시 설치 (UserProgram/VM)
++
++```bash
++# 예: UserProgram 진입 시
++cd pintos/userprog
++cp ../../pintos-util-main/userprog/select_test.sh .
++chmod +x select_test.sh
++
++# .test_config 자동 생성 (userprog/vm 한정 — generate_test_config.py가 정상 동작)
++source ../activate
++make -k check > /tmp/userprog-make-check.txt 2>&1
++python3 ../../pintos-util-main/generate_test_config.py \
++    < /tmp/userprog-make-check.txt > .test_config
++```
++
++VM도 동일하게 `pintos/vm/`에서 같은 절차로 설치합니다.
++
++> Threads는 `make check` 출력 포맷이 달라 `.test_config`를 손으로 작성해두었으니 위 자동 생성 단계는 불필요합니다.
+diff --git a/TIL/alarm_clock_study.md b/TIL/alarm_clock_study.md
+new file mode 100644
+index 0000000..a95bb9a
+--- /dev/null
++++ b/TIL/alarm_clock_study.md
+@@ -0,0 +1,159 @@
++# Pintos Project 1 — Alarm Clock 학습 정리
++
++## 1. 왜 수정했는가
++
++기존 `timer_sleep()`은 **busy-waiting** 방식이었다.
++CPU를 계속 점유하면서 루프를 돌며 시간을 확인하고, 아직 깰 시간이 아니면 `thread_yield()`로 양보했다가 다시 돌아오는 것을 반복했다.
++
++이는 CPU를 낭비하고 다른 thread가 CPU를 제대로 받지 못하는 문제를 야기한다.
++문서에서도 명시적으로 "No busy waiting"을 요구한다.
++
++---
++
++## 2. 해결 방향 — Sleep/Wakeup 메커니즘
++
++thread를 **BLOCKED 상태**로 만들어 `sleep_list`에 보관하고,
++`timer_interrupt()`가 매 tick마다 깨울 시간이 된 thread를 `thread_unblock()`으로 깨운다.
++
++### Thread 상태 3가지
++
++| 상태 | 위치 | 설명 |
++|------|------|------|
++| `THREAD_READY` | `ready_list` | CPU 받을 준비 완료 |
++| `THREAD_RUNNING` | — | 현재 CPU 사용 중 |
++| `THREAD_BLOCKED` | `sleep_list` | 깨울 때까지 대기 |
++
++---
++
++## 3. 수정한 것들
++
++### `thread.h` — `struct thread`에 필드 추가
++
++```c
++int64_t wakeup_tick;  /* 이 thread가 깨어나야 할 tick 값 */
++```
++
++`int64_t`를 쓰는 이유: tick은 부팅 후 계속 올라가는 값이라 `int`(약 21억 한계)로는 오버플로우가 발생할 수 있기 때문.
++
++### `thread.c` — 전역 자료구조 추가
++
++```c
++struct list sleep_list;  /* 잠든 thread들을 보관하는 리스트 */
++```
++
++`thread_init()`에 `list_init(&sleep_list)` 추가.
++
++### `devices/timer.c` — `timer_sleep()` 교체
++
++```c
++void timer_sleep(int64_t ticks) {
++    int64_t start = timer_ticks();
++    ASSERT(intr_get_level() == INTR_ON);
++
++    struct thread *t = thread_current();
++    t->wakeup_tick = start + ticks;       /* 1. 깨어날 tick 저장 */
++
++    enum intr_level old_level = intr_disable();  /* 2. 인터럽트 끄기 */
++    list_insert_ordered(&sleep_list, &t->elem,
++                        cmp_wakeup_tick, NULL);  /* 3. sleep_list에 정렬 삽입 */
++    thread_block();                              /* 4. BLOCKED 상태로 전환 */
++    intr_set_level(old_level);                   /* 5. 인터럽트 복구 */
++}
++```
++
++**순서가 중요한 이유:**
++`thread_block()` 이후엔 아무 코드도 실행되지 않는다.
++따라서 sleep_list 삽입을 반드시 먼저 해야 한다.
++삽입 전에 block되면 이 thread를 영원히 찾을 수 없게 된다.
++
++**인터럽트를 끄는 이유:**
++`list_insert_ordered()` 실행 도중 `timer_interrupt()`가 끼어들면
++리스트가 반쯤 삽입된 상태에서 순회가 일어나 리스트 구조가 깨진다.
++
++### `devices/timer.c` — `timer_interrupt()`에 wakeup 로직 추가
++
++```c
++/* 매 tick마다 sleep_list를 순회하여 깨울 thread를 unblock */
++struct list_elem *e = list_begin(&sleep_list);
++while (e != list_end(&sleep_list)) {
++    struct thread *t = list_entry(e, struct thread, elem);
++    if (timer_ticks() >= t->wakeup_tick) {
++        e = list_remove(e);
++        thread_unblock(t);
++    } else {
++        break;  /* 정렬되어 있으므로 이후는 볼 필요 없음 */
++    }
++}
++```
++
++---
++
++## 4. 비교 함수 2개
++
++### `cmp_priority` — ready_list 우선순위 내림차순 정렬
++
++```c
++/* ready_list를 우선순위 기준으로 내림차순 정렬하기 위한 비교 함수.
++   우선순위가 높은 thread가 리스트 앞쪽에 오도록 한다. */
++static bool
++cmp_priority(const struct list_elem *a,
++             const struct list_elem *b,
++             void *aux)
++{
++    (void) aux;
++    struct thread *ta = list_entry(a, struct thread, elem);
++    struct thread *tb = list_entry(b, struct thread, elem);
++    return ta->priority > tb->priority;  /* 내림차순 */
++}
++```
++
++### `cmp_wakeup_tick` — sleep_list wakeup_tick 오름차순 정렬
++
++```c
++/* sleep_list를 wakeup_tick 기준으로 오름차순 정렬하기 위한 비교 함수.
++   더 빨리 깨어나야 하는 thread가 리스트 앞쪽에 오도록 한다.
++   timer_interrupt()에서 wakeup_tick을 넘은 첫 번째 thread를 만나면
++   이후는 검사하지 않고 즉시 중단할 수 있어 효율적이다. */
++static bool
++cmp_wakeup_tick(const struct list_elem *a,
++                const struct list_elem *b,
++                void *aux)
++{
++    (void) aux;
++    struct thread *ta = list_entry(a, struct thread, elem);
++    struct thread *tb = list_entry(b, struct thread, elem);
++    return ta->wakeup_tick < tb->wakeup_tick;  /* 오름차순 */
++}
++```
++
++**두 함수의 차이:**
++- `cmp_priority` → 내림차순 (높은 게 앞으로) → `>`
++- `cmp_wakeup_tick` → 오름차순 (작은 게 앞으로) → `<`
++
++---
++
++## 5. 핵심 개념 요약
++
++| 용어 | 설명 |
++|------|------|
++| `tick` | 타이머 인터럽트가 발생할 때마다 1씩 올라가는 카운터. 1초 = 100 tick |
++| `wakeup_tick` | 현재 tick + sleep할 tick. "몇 번째 tick에 깨어날지" 절대값 |
++| `sleep_list` | BLOCKED 상태의 thread를 wakeup_tick 오름차순으로 보관 |
++| `thread_block()` | RUNNING → BLOCKED. 인터럽트 꺼진 상태에서 호출해야 함 |
++| `thread_unblock()` | BLOCKED → READY. ready_list에 삽입 |
++| `timer_interrupt()` | 매 tick마다 하드웨어가 자동 호출. sleep_list 순회하여 깨울 thread unblock |
++| `intr_disable()` | 인터럽트 끄기. 리스트 조작 구간 보호 |
++| `list_insert_ordered()` | 정렬된 위치에 삽입. push_back 대신 써서 순회 최적화 |
++
++---
++
++## 6. 테스트 결과
++
++```
++pass  alarm-single
++pass  alarm-multiple
++pass  alarm-simultaneous
++pass  alarm-zero
++pass  alarm-negative
++pass  alarm-priority  
++```
+diff --git a/TIL/pintos_api_reference.md b/TIL/pintos_api_reference.md
+new file mode 100644
+index 0000000..4535b2e
+--- /dev/null
++++ b/TIL/pintos_api_reference.md
+@@ -0,0 +1,705 @@
++# Pintos API 레퍼런스 — Project 1에서 쓰는 / 알아야 할 함수 모음
++
++작업하면서 만난 함수들을 한자리에 모아둔 문서. 각 함수마다 시그니처 →
++설명 → 주의 → 예제 순서로 정리한다. 예제는 가능하면 이번 프로젝트
++(alarm clock, priority scheduling)에서 실제로 쓴 코드를 사용한다.
++
++---
++
++## 0. 자주 쓰는 매크로
++
++### `list_entry(LIST_ELEM, STRUCT, MEMBER)`
++- 어떤 구조체의 `list_elem` 멤버 포인터로부터 그 **외곽 구조체 포인터**를 복원.
++- 컴파일 타임 매크로 (`offsetof`로 주소 보정).
++
++```c
++struct list_elem *e = list_begin(&ready_list);
++struct thread *t = list_entry(e, struct thread, elem);
++```
++
++### `ASSERT(cond)`
++- false면 즉시 커널 panic. 로직상 절대 깨지면 안 되는 invariant 체크용.
++- production 빌드에서도 켜져 있어 "성능 문제"로 빼면 안 된다.
++
++```c
++ASSERT (intr_get_level() == INTR_OFF);  /* 인터럽트가 꺼진 상태에서만 진행 */
++```
++
++### `UNUSED`
++- 함수 매개변수 중 일부를 안 쓸 때 컴파일러 경고를 누르는 어트리뷰트.
++
++```c
++static bool
++cmp_priority(const struct list_elem *a, const struct list_elem *b,
++             void *aux UNUSED) { ... }
++```
++
++---
++
++## 1. List API — `lib/kernel/list.h`
++
++Pintos의 list는 **양쪽 끝에 sentinel(head/tail)을 둔 이중 연결 리스트**.
++개별 노드는 `struct list_elem`으로 들어가고, 우리가 다루는 데이터는
++`list_entry`로 외곽 구조체를 복원해 사용한다.
++
++| 함수 | 한줄 설명 |
++|------|----------|
++| `list_init(list)` | 리스트 초기화. **사용 전 반드시 호출** |
++| `list_begin(list)` | 첫 elem (data 노드) |
++| `list_end(list)` | sentinel tail. 순회 종료 검사용 |
++| `list_next(elem)` | 다음 elem |
++| `list_front(list)` | 첫 데이터 elem (= `list_begin`이 가리키는 것) |
++| `list_back(list)` | 마지막 데이터 elem |
++| `list_push_back(list, elem)` | 뒤에 추가 (FIFO) |
++| `list_push_front(list, elem)` | 앞에 추가 |
++| `list_pop_front(list)` | 앞 elem 꺼내고 제거 |
++| `list_pop_back(list)` | 뒤 elem 꺼내고 제거 |
++| `list_remove(elem)` | 임의 위치 elem 제거. 다음 elem 반환 |
++| `list_insert(before, elem)` | `before` 앞에 삽입 |
++| `list_insert_ordered(list, elem, less, aux)` | 정렬된 위치에 삽입 |
++| `list_sort(list, less, aux)` | 전체 정렬 |
++| `list_min(list, less, aux)` | less 기준 **가장 작은** elem |
++| `list_max(list, less, aux)` | less 기준 **가장 큰** elem |
++| `list_empty(list)` | 비었는지 검사 |
++| `list_size(list)` | 원소 개수 (순회하므로 O(n)) |
++
++### `list_init`
++```c
++void list_init (struct list *);
++```
++사용 전 반드시 호출. 안 하면 sentinel이 자기 자신을 가리키는 상태가 아님 → 즉시 깨짐.
++
++```c
++struct list sleep_list;
++void thread_init (void) {
++    list_init(&sleep_list);
++}
++```
++
++### `list_push_back` / `list_pop_front` (FIFO 패턴)
++```c
++void list_push_back (struct list *, struct list_elem *);
++struct list_elem *list_pop_front (struct list *);
++```
++가장 단순한 큐. waiter들을 단순 보관할 때 자주 사용.
++
++```c
++list_push_back(&sema->waiters, &thread_current()->elem);
++thread_block();
++/* ... */
++struct list_elem *e = list_pop_front(&sema->waiters);
++struct thread *t = list_entry(e, struct thread, elem);
++```
++
++### `list_insert_ordered`
++```c
++void list_insert_ordered (struct list *, struct list_elem *,
++                          list_less_func *, void *aux);
++```
++정렬 상태를 유지하며 삽입. 매 삽입 O(n)이지만 꺼낼 때 O(1)이 된다.
++**삽입은 항상 ordered, 꺼낼 때 front만 보면 된다**는 패턴이 핵심.
++
++```c
++/* sleep_list를 wakeup_tick 오름차순으로 유지 */
++list_insert_ordered(&sleep_list, &t->elem, cmp_wakeup_tick, NULL);
++```
++
++### `list_min` / `list_max` ⚠️ 헷갈림 주의
++
++```c
++struct list_elem *list_min (struct list *, list_less_func *, void *aux);
++struct list_elem *list_max (struct list *, list_less_func *, void *aux);
++```
++
++- 둘 다 **less function**을 받는다. `less(a, b) == true`면 "a가 b보다 작다"로 해석.
++- `cmp_priority`처럼 `>`(내림차순) less를 넘기면 의미가 뒤집혀 결과도 뒤집힌다.
++
++| 호출 | `cmp_priority`(내림차순)와 함께 쓰면 |
++|------|----------------------------------|
++| `list_min(list, cmp_priority, NULL)` | **우선순위가 가장 큰** elem |
++| `list_max(list, cmp_priority, NULL)` | **우선순위가 가장 작은** elem |
++
++```c
++/* sema_up: 가장 우선순위 높은 waiter 깨우기 */
++struct list_elem *max_elem = list_min(&sema->waiters, cmp_priority, NULL);
++list_remove(max_elem);
++thread_unblock(list_entry(max_elem, struct thread, elem));
++```
++
++### `list_remove`
++```c
++struct list_elem *list_remove (struct list_elem *);
++```
++임의 위치 elem 제거. 반환값은 **다음 elem**이라 순회 중 제거할 때 유용.
++
++```c
++/* timer_interrupt에서 깰 시간이 된 thread를 sleep_list에서 빼기 */
++struct list_elem *e = list_begin(&sleep_list);
++while (e != list_end(&sleep_list)) {
++    struct thread *t = list_entry(e, struct thread, elem);
++    if (timer_ticks() >= t->wakeup_tick) {
++        e = list_remove(e);          /* 다음 elem 받기 */
++        thread_unblock(t);
++    } else {
++        break;                       /* 정렬돼 있으니 중단 */
++    }
++}
++```
++
++### 표준 순회 패턴
++```c
++for (struct list_elem *e = list_begin(&list);
++     e != list_end(&list);
++     e = list_next(e)) {
++    struct thread *t = list_entry(e, struct thread, elem);
++    /* ... */
++}
++```
++
++### `list_less_func` 타입
++```c
++typedef bool list_less_func (const struct list_elem *a,
++                             const struct list_elem *b,
++                             void *aux);
++```
++`a < b`면 true. `aux`는 비교에 추가 컨텍스트가 필요할 때만 쓰고 보통 NULL.
++
++```c
++static bool cmp_wakeup_tick (const struct list_elem *a,
++                             const struct list_elem *b,
++                             void *aux UNUSED) {
++    struct thread *ta = list_entry(a, struct thread, elem);
++    struct thread *tb = list_entry(b, struct thread, elem);
++    return ta->wakeup_tick < tb->wakeup_tick;   /* 오름차순 */
++}
++```
++
++---
++
++## 2. Thread API — `threads/thread.h`
++
++| 함수 | 한줄 설명 |
++|------|----------|
++| `thread_create(name, priority, fn, aux)` | 새 thread 생성. 즉시 ready_list에 들어감 |
++| `thread_block()` | RUNNING → BLOCKED. **인터럽트 끈 상태**에서 호출 |
++| `thread_unblock(t)` | BLOCKED → READY. ready_list에 삽입 |
++| `thread_yield()` | RUNNING → READY. 다른 thread에게 CPU 양보 |
++| `thread_current()` | 현재 RUNNING thread 포인터 |
++| `thread_tid()` | 현재 thread tid |
++| `thread_exit()` | 현재 thread 종료. 돌아오지 않음 |
++| `thread_set_priority(p)` | 현재 thread 우선순위 변경 |
++| `thread_get_priority()` | 현재 thread 우선순위 조회 |
++
++### `thread_create`
++```c
++tid_t thread_create (const char *name, int priority,
++                     thread_func *function, void *aux);
++```
++- 새 thread 만들고 함수 진입점 등록 → **자동으로 unblock(ready)** 됨.
++- 새 thread가 우선순위가 더 높으면 호출자가 `thread_yield`를 해야 즉시 동작.
++
++```c
++tid_t tid = thread_create("worker", PRI_DEFAULT, worker_fn, NULL);
++if (priority > thread_current()->priority)
++    thread_yield();
++```
++
++### `thread_block` ⚠️ 인터럽트 OFF 필수
++```c
++void thread_block (void);
++```
++- 호출 시점부터 thread가 멈춤. **호출 전에 어디에 들어 있는지(어떤 list에 등록했는지) 반드시 기록**해두어야 깨울 수 있다.
++- `intr_disable()` 후 호출.
++
++```c
++enum intr_level old = intr_disable();
++list_insert_ordered(&sleep_list, &t->elem, cmp_wakeup_tick, NULL);
++thread_block();                /* 여기서 멈춤 */
++intr_set_level(old);           /* 깨어난 후 복구 */
++```
++
++### `thread_unblock`
++```c
++void thread_unblock (struct thread *t);
++```
++- BLOCKED → READY. ready_list에 추가만 하고 **즉시 양보는 안 함**.
++- 인터럽트 컨텍스트(`intr_context()`)에서도 호출 가능.
++
++```c
++/* timer_interrupt에서 호출 — intr_context이라 yield 못 함 */
++thread_unblock(t);
++```
++
++### `thread_yield` ⚠️ 인터럽트 컨텍스트 금지
++```c
++void thread_yield (void);
++```
++- 자발적 CPU 양보. 자기를 ready_list에 넣고 schedule 호출.
++- **인터럽트 핸들러 안에서는 호출 금지**. `intr_yield_on_return()` 사용.
++
++```c
++/* sema_up 직후 — 깨운 thread가 더 높은 우선순위면 즉시 양보 */
++thread_unblock(t);
++if (!intr_context())
++    thread_yield();
++```
++
++### `thread_current`
++```c
++struct thread *thread_current (void);
++```
++- 항상 현재 RUNNING thread를 반환. 내부에서 magic number로 stack overflow 검사.
++
++```c
++thread_current()->wakeup_tick = start + ticks;
++```
++
++### `thread_set_priority` / `thread_get_priority`
++```c
++void thread_set_priority (int new_priority);
++int  thread_get_priority (void);
++```
++- 우선순위 범위: `PRI_MIN(0)` ~ `PRI_MAX(63)`, 기본 `PRI_DEFAULT(31)`.
++- 우선순위를 낮추면 즉시 ready_list 최고 우선순위와 비교 후 yield 해야 함.
++
++```c
++void thread_set_priority (int new_priority) {
++    thread_current()->priority = new_priority;
++    if (!list_empty(&ready_list)) {
++        struct thread *highest = list_entry(
++            list_min(&ready_list, cmp_priority, NULL),  /* ← list_min 주의 */
++            struct thread, elem);
++        if (highest->priority > thread_current()->priority)
++            thread_yield();
++    }
++}
++```
++
++---
++
++## 3. Synchronization API — `threads/synch.h`
++
++### Semaphore
++
++```c
++void sema_init (struct semaphore *sema, unsigned value);
++void sema_down (struct semaphore *sema);   /* P 연산: value-- (없으면 block) */
++bool sema_try_down (struct semaphore *sema);
++void sema_up   (struct semaphore *sema);   /* V 연산: value++, waiter 깨움 */
++```
++
++- 초기값 1로 만들면 mutex 흉내, N으로 만들면 자원 풀.
++- `sema_down`은 인터럽트를 끄고 `value==0`이면 자기를 waiters에 push 후 block.
++- `sema_up`은 waiter 하나 unblock 후 value 증가.
++
++```c
++struct semaphore sema;
++sema_init(&sema, 0);
++
++/* 생산자 */
++sema_up(&sema);
++
++/* 소비자 */
++sema_down(&sema);
++```
++
++### Lock
++
++```c
++void lock_init (struct lock *lock);
++void lock_acquire (struct lock *lock);
++bool lock_try_acquire (struct lock *lock);
++void lock_release (struct lock *lock);
++bool lock_held_by_current_thread (const struct lock *lock);
++```
++
++- 내부 구현은 value=1 semaphore + holder 추적.
++- **재귀 acquire 불가** — 같은 thread가 두 번 acquire하면 deadlock.
++- `cond_wait`/`cond_signal` 호출자는 lock 보유자여야 한다 → ASSERT로 강제.
++
++```c
++struct lock lock;
++lock_init(&lock);
++
++lock_acquire(&lock);
++/* critical section */
++lock_release(&lock);
++```
++
++### Condition Variable
++
++```c
++void cond_init (struct condition *);
++void cond_wait (struct condition *, struct lock *);
++void cond_signal (struct condition *, struct lock *);
++void cond_broadcast (struct condition *, struct lock *);
++```
++
++- monitor 패턴. **lock을 들고 있는 상태**에서만 호출.
++- `cond_wait`: lock 풀고 → block → 깨어나면 lock 다시 acquire (원자적으로 보장).
++- 각 waiter는 자기 전용 `semaphore_elem`을 만들고 그 안의 semaphore에 단독 down.
++
++```c
++lock_acquire(&lock);
++while (!ready_to_proceed)
++    cond_wait(&cond, &lock);
++/* ... */
++lock_release(&lock);
++
++/* 다른 쪽: */
++lock_acquire(&lock);
++ready_to_proceed = true;
++cond_signal(&cond, &lock);
++lock_release(&lock);
++```
++
++> `while`로 wrapping하는 이유: spurious wakeup 방어 + signal 후 깨어나기 전
++> 다른 thread가 상태를 바꿨을 수 있음.
++
++---
++
++## 4. Interrupt API — `threads/interrupt.h`
++
++```c
++enum intr_level intr_get_level (void);
++enum intr_level intr_set_level (enum intr_level);
++enum intr_level intr_enable (void);
++enum intr_level intr_disable (void);
++bool intr_context (void);
++void intr_yield_on_return (void);
++```
++
++- `enum intr_level`: `INTR_OFF`, `INTR_ON`.
++- `intr_disable/enable`: 이전 level을 반환 → 복구 시 `intr_set_level(old)`.
++- `intr_context()`: 인터럽트 핸들러 안에서 true.
++- `intr_yield_on_return()`: 인터럽트 핸들러에서 yield하고 싶을 때
++  → 핸들러 종료 직후 yield가 일어남.
++
++### 임계영역 보호 패턴
++```c
++enum intr_level old = intr_disable();
++/* list 조작 등 짧은 critical section */
++intr_set_level(old);
++```
++
++### 인터럽트 컨텍스트 검사
++```c
++if (!intr_context())
++    thread_yield();         /* 핸들러 안에서는 호출 금지 */
++```
++
++### timer_interrupt에서 yield하는 법
++```c
++void timer_interrupt (struct intr_frame *args UNUSED) {
++    /* ... */
++    if (some_condition)
++        intr_yield_on_return();   /* 직접 yield 호출 X */
++}
++```
++
++---
++
++## 5. Timer API — `devices/timer.h`
++
++```c
++int64_t timer_ticks   (void);            /* 부팅 후 누적 tick */
++int64_t timer_elapsed (int64_t then);    /* now - then */
++void    timer_sleep   (int64_t ticks);   /* 지정한 tick만큼 대기 */
++void    timer_msleep  (int64_t ms);
++void    timer_usleep  (int64_t us);
++void    timer_nsleep  (int64_t ns);
++```
++
++- `TIMER_FREQ = 100Hz` → **1초 = 100 tick** (기본 설정).
++- `timer_ticks` 호출 시 인터럽트가 잠깐 꺼졌다 켜짐 (race 방지).
++- `timer_sleep`은 우리가 alarm clock 단계에서 sleep_list 기반으로 교체.
++
++### 사용 예
++```c
++int64_t start = timer_ticks();
++/* ... */
++if (timer_elapsed(start) >= 5)         /* 5 tick 경과 검사 */
++    do_something();
++
++timer_sleep(50);                       /* 0.5초 대기 */
++```
++
++### 우리가 구현한 timer_sleep
++```c
++void timer_sleep (int64_t ticks) {
++    int64_t start = timer_ticks();
++    ASSERT (intr_get_level() == INTR_ON);
++
++    struct thread *t = thread_current();
++    t->wakeup_tick = start + ticks;
++
++    enum intr_level old = intr_disable();
++    list_insert_ordered(&sleep_list, &t->elem, cmp_wakeup_tick, NULL);
++    thread_block();
++    intr_set_level(old);
++}
++```
++
++---
++
++## 6. Priority Donation 관련 자료구조 / 헬퍼
++
++`priority_scheduling`의 다음 단계인 **priority donation**은 lock 보유자가
++대기자보다 낮은 우선순위일 때 일시적으로 우선순위를 끌어올려 **priority
++inversion**을 막는 기법이다. 여기서 다루는 건 Pintos가 기본 제공하는
++API가 아니라 **우리가 직접 만져야 할 자료구조와 작성해야 할 헬퍼**들이다.
++
++### 6.1 `struct thread` 추가 필드 (`include/threads/thread.h`)
++
++```c
++int             priority;           /* 현재 우선순위 (= effective priority) */
++int             original_priority;  /* donation 받기 전 원래 우선순위 */
++struct lock    *wait_on_lock;       /* 지금 기다리고 있는 lock, 없으면 NULL */
++struct list     donations;          /* 나에게 donation 한 thread들의 리스트 */
++struct list_elem donation_elem;     /* 다른 thread의 donations에 들어갈 때 사용 */
++```
++
++| 필드 | 역할 | 갱신 시점 |
++|------|------|-----------|
++| `priority` | 스케줄러가 보는 값. donation으로 일시 상승 가능 | donation, refresh, set_priority |
++| `original_priority` | donation 끝나면 돌아갈 baseline | 생성 시 / `thread_set_priority` |
++| `wait_on_lock` | nested donation 체인을 따라가는 핵심 포인터 | `lock_acquire` 시작 / 락 획득 직후 |
++| `donations` | 같은 thread가 여러 lock을 들고 있을 때 lock 별로 들어온 donation을 모두 추적 | `lock_acquire` / `lock_release` |
++| `donation_elem` | `donations` 리스트 연결용. **`elem`과 분리**되어야 함 (ready_list와 동시에 들어 있을 수 있음) | — |
++
++> ⚠️ `elem`은 ready_list / waiters / sleep_list 용이고
++> `donation_elem`은 다른 thread의 `donations` 용. **절대 같이 쓰면 안 됨.**
++
++### 6.2 `struct lock` (`include/threads/synch.h`)
++
++```c
++struct lock {
++    struct thread *holder;           /* 현재 lock을 보유한 thread (없으면 NULL) */
++    struct semaphore semaphore;      /* 내부 binary semaphore */
++};
++```
++
++donation 체인 추적은 `current->wait_on_lock->holder` → `holder->wait_on_lock->holder`
++… 형태로 따라간다. `holder`만 있으면 충분.
++
++### 6.3 작성해야 할 헬퍼 3종
++
++`synch.c` 상단에서 이미 선언만 해둔 함수들. 호출 위치까지 같이 정리.
++
++#### `donate_priority(void)` — nested donation 전파
++```c
++static void donate_priority (void);
++```
++- 호출 위치: **`lock_acquire`**에서 `sema_down` 직전 (락 보유자가 있을 때).
++- 동작: 현재 thread의 priority를 `wait_on_lock->holder`에게 전달하고,
++  그 holder가 또 다른 lock을 기다리고 있으면 그 holder에게도 전달.
++- **depth ≤ 8** 제한 (Pintos spec).
++- 종료 조건: `wait_on_lock == NULL` || `holder == NULL` ||
++  holder의 priority가 이미 충분히 큼.
++
++#### `refresh_priority(void)` — donation 끝난 뒤 effective priority 재계산
++```c
++static void refresh_priority (void);
++```
++- 호출 위치:
++  1. `lock_release` 직후 (그 lock으로 받은 donation을 정리한 후)
++  2. `thread_set_priority` 안 (사용자가 base를 바꿨을 때)
++- 동작:
++  ```
++  priority = original_priority
++  if (donations 비어있지 않음)
++      priority = max(priority, donations 안의 최대 priority)
++  ```
++
++#### `remove_with_lock(struct lock *lock)` — 특정 lock 관련 donation 정리
++```c
++static void remove_with_lock (struct lock *lock);
++```
++- 호출 위치: **`lock_release`** 안, `sema_up` 직전.
++- 동작: 현재 thread의 `donations`를 순회하며 `wait_on_lock == lock`
++  인 entry를 모두 제거.
++- 이게 필요한 이유: 한 thread가 여러 lock을 들고 있으면 `donations`에는
++  서로 다른 lock 때문에 들어온 donor들이 섞여 있음 → 지금 푸는 lock 것만
++  골라서 빼야 함.
++
++### 6.4 호출 시점 한눈에 보기 ⭐
++
++```
++init_thread:
++    priority           = priority_arg
++    original_priority  = priority_arg
++    wait_on_lock       = NULL
++    list_init(&donations)
++
++lock_acquire:
++    if (lock->holder != NULL) {
++        current->wait_on_lock = lock
++        list_insert_ordered(&holder->donations,
++                            &current->donation_elem,
++                            cmp_donation_priority, NULL)
++        donate_priority()
++    }
++    sema_down(&lock->semaphore)        ← 여기서 block / 깨어남
++    current->wait_on_lock = NULL
++    lock->holder = current
++
++lock_release:
++    remove_with_lock(lock)
++    refresh_priority()
++    lock->holder = NULL
++    sema_up(&lock->semaphore)
++
++thread_set_priority(new):
++    original_priority = new
++    refresh_priority()
++    /* effective priority가 ready_list 최댓값보다 낮아지면 yield */
++```
++
++> mlfqs 모드(Project 1 Part 4)에서는 donation을 끄도록 `if (!thread_mlfqs)`
++> 분기를 둬야 하지만, 지금 단계에선 무시해도 OK.
++
++### 6.5 `donations` 리스트 비교 함수
++
++기존 `cmp_priority`는 `struct thread.elem`을 가정한다. donations는
++`donation_elem`을 사용하므로 별도 비교 함수가 필요.
++
++```c
++static bool
++cmp_donation_priority (const struct list_elem *a,
++                       const struct list_elem *b,
++                       void *aux UNUSED) {
++    struct thread *ta = list_entry(a, struct thread, donation_elem);
++    struct thread *tb = list_entry(b, struct thread, donation_elem);
++    return ta->priority > tb->priority;   /* 내림차순 less */
++}
++```
++
++`list_insert_ordered`로 항상 정렬 유지 → `list_front`만 봐도 max 가능.
++또는 `list_min(donations, cmp_donation_priority, NULL)`로 뽑아도 됨
++(섹션 1에서 봤던 `list_min` ↔ "내림차순 less" 함정 그대로 적용).
++
++---
++
++## 7. 자주 쓰는 패턴 모음
++
++### 패턴 1 — "인터럽트 끄고 list 조작 후 block"
++```c
++enum intr_level old = intr_disable();
++list_insert_ordered(&some_list, &t->elem, cmp_fn, NULL);
++thread_block();
++intr_set_level(old);
++```
++- list 조작 도중 timer_interrupt가 끼어들면 자료구조가 깨질 수 있어 disable 필수.
++
++### 패턴 2 — "정렬된 list에서 조건 만족하는 prefix만 처리"
++```c
++struct list_elem *e = list_begin(&sleep_list);
++while (e != list_end(&sleep_list)) {
++    struct thread *t = list_entry(e, struct thread, elem);
++    if (CONDITION) {
++        e = list_remove(e);
++        thread_unblock(t);
++    } else {
++        break;     /* 정렬돼 있어 뒤는 볼 필요 없음 */
++    }
++}
++```
++
++### 패턴 3 — "가장 높은 우선순위 waiter 깨우기"
++```c
++struct list_elem *e = list_min(&waiters, cmp_priority, NULL);
++list_remove(e);
++thread_unblock(list_entry(e, struct thread, elem));
++if (!intr_context())
++    thread_yield();
++```
++
++### 패턴 4 — "condition variable 표준 사용"
++```c
++lock_acquire(&lock);
++while (!CONDITION)
++    cond_wait(&cond, &lock);
++/* CONDITION 만족, 작업 수행 */
++lock_release(&lock);
++```
++
++### 패턴 5 — "nested donation 체인 따라 priority 전파"
++```c
++/* donate_priority 본체 — depth 8 제한 */
++struct thread *cur = thread_current();
++for (int depth = 0; depth < 8; depth++) {
++    if (cur->wait_on_lock == NULL) break;
++    struct thread *holder = cur->wait_on_lock->holder;
++    if (holder == NULL) break;
++    if (holder->priority >= cur->priority) break;  /* 이미 충분 */
++    holder->priority = cur->priority;
++    cur = holder;                                  /* 다음 hop */
++}
++```
++
++### 패턴 6 — "donation 끝난 뒤 effective priority 재계산 (refresh_priority)"
++```c
++struct thread *cur = thread_current();
++cur->priority = cur->original_priority;            /* baseline 복원 */
++
++if (!list_empty(&cur->donations)) {
++    /* donations가 cmp_donation_priority(내림차순 less)로 정렬되어 있다면
++       front가 최대 — list_min과 list_front 어느 쪽이든 OK */
++    struct list_elem *e = list_front(&cur->donations);
++    struct thread *top = list_entry(e, struct thread, donation_elem);
++    if (top->priority > cur->priority)
++        cur->priority = top->priority;
++}
++```
++
++### 패턴 7 — "특정 lock 때문에 들어온 donation만 골라서 제거 (remove_with_lock)"
++```c
++struct thread *cur = thread_current();
++struct list_elem *e = list_begin(&cur->donations);
++while (e != list_end(&cur->donations)) {
++    struct thread *t = list_entry(e, struct thread, donation_elem);
++    if (t->wait_on_lock == lock)
++        e = list_remove(e);          /* 다음 elem 받기 */
++    else
++        e = list_next(e);
++}
++```
++
++### 패턴 8 — "lock_acquire에서 donation 등록"
++```c
++struct thread *cur = thread_current();
++if (lock->holder != NULL) {
++    cur->wait_on_lock = lock;
++    list_insert_ordered(&lock->holder->donations,
++                        &cur->donation_elem,
++                        cmp_donation_priority, NULL);
++    donate_priority();
++}
++sema_down(&lock->semaphore);            /* 여기서 block */
++cur->wait_on_lock = NULL;               /* 깨어났으면 더 이상 대기 X */
++lock->holder = cur;
++```
++
++---
++
++## 8. 흔히 하는 실수 체크리스트
++
++- [ ] `list_init` 안 부르고 `list_push_back` 호출 → 즉시 깨짐
++- [ ] `thread_block` 호출 전에 어떤 list에도 자기를 등록 안 함 → 영원히 못 깨움
++- [ ] `thread_block` 호출 시 인터럽트 ON 상태 → race condition
++- [ ] 인터럽트 핸들러 안에서 `thread_yield` 직접 호출 → panic
++- [ ] `cmp_priority`(내림차순)에 `list_max` 사용 → 의도와 반대
++- [ ] `cond_wait`을 `if`로 wrapping (정답: `while`)
++- [ ] `lock_acquire` 호출자가 이미 lock 보유 → deadlock (재귀 lock 아님)
++- [ ] `sema_up` 직후 yield 안 함 → 깨운 thread가 더 높은 우선순위여도 안 돌아감
++
++### Priority donation 전용
++
++- [ ] `init_thread`에서 `list_init(&donations)` 누락 → 첫 donation 시점에 깨짐
++- [ ] `init_thread`에서 `original_priority` 초기화 누락 → `refresh_priority`가 garbage 사용
++- [ ] `donations`에 `elem`을 넣음 (정답: `donation_elem`) → ready_list / waiters 자료구조 손상
++- [ ] `thread_set_priority`에서 `priority`에 직접 대입하고 끝 → 더 높은 donation을 무시하게 됨 (정답: `original_priority` 갱신 + `refresh_priority`)
++- [ ] `cmp_donation_priority`가 `>`(내림차순)인데 `list_max` 사용 → 가장 낮은 donation 반환
++- [ ] `lock_acquire`에서 `wait_on_lock = NULL`을 `sema_down` **전에** 풀어버림 → nested donation 체인이 끊어져 전파 실패
++- [ ] `lock_release`에서 `remove_with_lock` 없이 `refresh_priority`만 호출 → 이미 풀린 lock의 donor가 계속 남아 priority가 안 내려옴
++- [ ] donation chain에서 depth 제한 없음 → 사이클이나 깊은 체인에서 무한 루프 가능 (Pintos spec: 최대 8)
+diff --git a/TIL/priority_donation_study.md b/TIL/priority_donation_study.md
+new file mode 100644
+index 0000000..37684a8
+--- /dev/null
++++ b/TIL/priority_donation_study.md
+@@ -0,0 +1,339 @@
++# Pintos Project 1 — Priority Donation 학습 정리
++
++## 1. 왜 필요한가 — Priority Inversion
++
++priority scheduling만 적용하면 다음 시나리오에서 문제가 생긴다.
++
++```
++H (high)  ──┐
++M (medium)──┼──> CPU 경쟁
++L (low)   ──┘
++            └─> L이 lock A 보유 중
++
++진행:
++  1. L 실행 → lock A acquire → critical section 진입
++  2. H 도착 → lock A acquire 시도 → block (L이 들고 있음)
++  3. M 도착 → ready_list 진입
++  4. CPU는 ready_list에서 가장 높은 M을 고름 → L은 영원히 못 돔
++  5. L이 못 도니 lock A를 release 못 함 → H도 영원히 못 깨어남
++```
++
++H는 M보다 우선순위가 높지만, L에 의해 막혀 있고 그 L은 M에게 밀린다.
++결국 **H가 M에 의해 간접적으로 밀리는** 현상 = **priority inversion**.
++
++해결 아이디어: **H가 L을 기다리는 동안 H의 우선순위를 L에게 빌려주자.**
++그러면 L은 일시적으로 H 우선순위가 되어 M보다 먼저 돌고, 빠르게
++critical section을 끝내고 lock을 풀 수 있다 → H 진입 가능. 이게
++**priority donation**이다.
++
++> priority scheduling 단계 정리는
++> [priority_scheduling_study.md](priority_scheduling_study.md) 참고.
++
++---
++
++## 2. 만족해야 하는 케이스
++
++Pintos 테스트는 다음 시나리오를 모두 검증한다.
++
++| 케이스 | 설명 |
++|--------|------|
++| **single donation** | H가 L에게 한 번만 donate |
++| **multiple donation** | 한 thread가 여러 lock을 들고 있을 때 lock별 donor 모두 추적 |
++| **nested donation** | H → M(이 N의 lock 대기) → N 처럼 체인을 따라 전파 |
++| **donation 회수** | lock release 시 그 lock 때문 donate 받은 것만 정확히 빼야 함 |
++| **set_priority와 공존** | base가 바뀌어도 더 높은 donation이 살아 있으면 유지해야 함 |
++
++이 5가지 요구가 자료구조와 함수 구조를 결정한다.
++
++---
++
++## 3. 자료구조 설계 — 왜 이 4개 필드인가
++
++### `struct thread` (`include/threads/thread.h`)
++
++```c
++int original_priority;          /* donation 받기 전 base */
++struct lock *wait_on_lock;      /* 지금 기다리는 lock (없으면 NULL) */
++struct list donations;          /* 나에게 donate한 thread들 */
++struct list_elem donation_elem; /* 다른 thread의 donations에 들어갈 때 사용 */
++```
++
++각 필드가 어떤 요구를 푸는지 1:1 매핑:
++
++| 필드 | 푸는 문제 |
++|------|-----------|
++| `original_priority` | donation 끝나면 어디로 돌아갈지 — base를 잊으면 안 됨 |
++| `wait_on_lock` | nested donation 체인을 따라가는 hop pointer (`cur->wait_on_lock->holder`) |
++| `donations` | **multiple donation** 추적 — 한 thread가 여러 donor를 받을 수 있음 |
++| `donation_elem` | `elem`은 ready_list/waiters/sleep_list 전용. donations에는 별도 elem 필요 |
++
++> ⚠️ **`elem`과 `donation_elem`을 분리한 이유**:
++> donor thread는 동시에 lock의 waiters(=`elem` 사용)에도 들어 있고,
++> holder의 donations(=`donation_elem` 사용)에도 들어 있다. 같은 elem을
++> 두 list에 넣으면 자료구조가 즉시 깨진다.
++
++```c
++/* threads/thread.c — init_thread */
++t->original_priority = priority;
++t->wait_on_lock = NULL;
++list_init(&t->donations);
++```
++
++생성 시점에 `priority == original_priority`로 시작. donations는 비어 있음.
++이걸 빠뜨리면 첫 donation 시점에 list가 깨지거나 garbage priority로
++복원돼서 즉사한다.
++
++---
++
++## 4. 코드 흐름 — 순차적으로 왜 이렇게 짰나
++
++`lock_acquire → lock_release → thread_set_priority` 순서로 따라간다.
++각 함수에서 어떤 invariant를 지켜야 하는지 보면, 헬퍼 3종이 왜 필요한지
++자연스럽게 나온다.
++
++### 4.1 `lock_acquire` — donation의 등록 시점
++
++```c
++void
++lock_acquire (struct lock *lock) {
++    /* ... ASSERT 생략 ... */
++    struct thread *cur = thread_current();
++
++    if (lock->holder != NULL) {
++        cur->wait_on_lock = lock;
++        list_insert_ordered(&lock->holder->donations,
++                            &cur->donation_elem,
++                            cmp_donation_priority, NULL);
++        donate_priority();
++    }
++
++    sema_down(&lock->semaphore);   /* ← block */
++    cur->wait_on_lock = NULL;      /* 깨어났으니 더 이상 대기 X */
++    lock->holder = cur;
++}
++```
++
++**왜 이 순서인가?**
++
++1. **lock->holder 검사가 먼저** — holder가 없으면 그냥 락을 잡으면 끝.
++   donation이 발생할 일이 없다.
++2. **`wait_on_lock` 설정을 sema_down 전에** — sema_down에서 block되는
++   동안 다른 thread가 nested chain을 따라올 때, 내 `wait_on_lock`이
++   이미 세팅돼 있어야 chain이 끊기지 않는다. (체인 추적은 `wait_on_lock`
++   포인터로만 이뤄진다.)
++3. **`donations`에 등록 → donate_priority** — holder의 donations에 자기를
++   먼저 넣고 나서 priority를 끌어올려야, 나중에 lock_release에서
++   `remove_with_lock`이 정확히 나를 찾아 뺄 수 있다.
++4. **sema_down 이후 `wait_on_lock = NULL`** — 락을 잡는 데 성공했으니
++   더 이상 대기 중이 아니다. 안 풀어주면 chain 추적할 때 endless loop
++   소지가 있다.
++
++### 4.2 `donate_priority` — nested chain 따라 전파
++
++```c
++static void
++donate_priority(void) {
++    struct thread *cur = thread_current();
++    for (int depth = 0; depth < 8; depth++) {
++        if (cur->wait_on_lock == NULL) break;
++        struct thread *holder = cur->wait_on_lock->holder;
++        if (holder == NULL) break;
++        if (holder->priority >= cur->priority) break;
++
++        holder->priority = cur->priority;
++        cur = holder;                       /* 다음 hop */
++    }
++}
++```
++
++**왜 이 모양인가?**
++
++- **루프인 이유**: nested 케이스 (`H → M → L`) 때문. 한 번만 올리면 M까지만
++  올라가고 L은 그대로 → priority inversion 그대로 남음.
++- **depth 8 제한**: Pintos spec 명시. 무한 루프 / 사이클 안전장치.
++- **`cur->wait_on_lock == NULL` 종료**: chain 끝. 더 따라갈 hop이 없음.
++- **`holder->priority >= cur->priority` 종료 (가지치기)**: holder가 이미
++  나보다 높거나 같으면 더 올릴 필요 없음. 이걸 빼면 불필요하게 chain을
++  끝까지 다 돌아 성능 손해.
++- **`holder->priority = cur->priority` (대입, max 아님)**: 가지치기 조건
++  덕분에 여기 도달한 시점이면 `holder->priority < cur->priority`가
++  보장돼 있음 → max 호출 불필요.
++
++### 4.3 `lock_release` — donation 회수
++
++```c
++void
++lock_release (struct lock *lock) {
++    /* ... ASSERT 생략 ... */
++    remove_with_lock(lock);     /* ① 이 lock 때문에 들어온 donor 제거 */
++    refresh_priority();         /* ② effective priority 재계산 */
++    lock->holder = NULL;        /* ③ holder 풀기 */
++    sema_up(&lock->semaphore);  /* ④ 다음 waiter 깨움 */
++}
++```
++
++**왜 이 순서인가?**
++
++- **① → ②가 핵심**: 이 lock 때문에 들어온 donor를 먼저 빼야,
++  refresh가 "남아 있는 donation들 중 max"를 정확히 본다. 순서를 뒤집으면
++  방금 푼 lock의 donor를 후보에 넣은 채 max를 계산해서 priority가 안 내려옴.
++- **③ holder = NULL을 sema_up 전에**: sema_up 안에서 깨어난 thread가
++  곧장 RUNNING이 되어 `lock->holder` 검사를 할 수 있는데, 이때 NULL이
++  보여야 다음 acquirer의 자기 자신 holder 등록이 자연스럽게 된다.
++- **④ sema_up 마지막**: 깨어난 thread가 더 높으면 즉시 yield가
++  발생할 수 있는데(우리 구현 §priority_scheduling), 그 전에 ①~③이 다
++  끝나 있어야 invariant 깨지지 않음.
++
++### 4.4 `remove_with_lock` — multiple donation을 정확히 다룸
++
++```c
++static void
++remove_with_lock(struct lock *lock) {
++    struct thread *cur = thread_current();
++    struct list_elem *e;
++
++    for (e = list_begin(&cur->donations);
++         e != list_end(&cur->donations);
++         /* 비움 */) {
++        struct thread *t = list_entry(e, struct thread, donation_elem);
++        if (t->wait_on_lock == lock)
++            e = list_remove(e);          /* 다음 elem 받기 */
++        else
++            e = list_next(e);
++    }
++}
++```
++
++**왜 그냥 `list_clear`가 아닌가?**
++
++한 thread가 lock A, B를 동시에 들고 있고 각각 donor가 있을 수 있다.
++A를 풀 때 B의 donor까지 같이 빼면 안 됨. **donor의 `wait_on_lock`이
++지금 푸는 lock과 같은 것만** 골라서 빼야 한다.
++
++**`list_remove`의 반환값을 다시 e로**: 순회 중 제거할 때의 표준 패턴.
++반환값은 다음 elem이라 `list_next`를 따로 부를 필요 없다. (이걸 안 하면
++삭제된 노드를 다시 next로 따라가다 깨짐.)
++
++### 4.5 `refresh_priority` — effective priority 재계산
++
++```c
++void
++refresh_priority(void) {
++    struct thread *cur = thread_current();
++    cur->priority = cur->original_priority;
++
++    if (!list_empty(&cur->donations)) {
++        struct list_elem *e =
++            list_min(&cur->donations, cmp_donation_priority, NULL);
++        struct thread *top = list_entry(e, struct thread, donation_elem);
++        if (top->priority > cur->priority)
++            cur->priority = top->priority;
++    }
++}
++```
++
++**왜 두 단계인가?**
++
++- **1단계: `original_priority`로 초기화** — donation이 모두 사라진
++  경우의 정답이다. base로 일단 돌려놓고 시작.
++- **2단계: 남은 donation 중 max로 갱신** — donations가 비어 있지 않으면
++  그중 가장 높은 값과 base를 비교해 큰 쪽을 채택.
++
++**`list_min` + 내림차순 less 트릭**: `cmp_donation_priority`는
++`a->priority > b->priority`(내림차순) less function이다. 그래서
++`list_min`을 호출하면 의미가 뒤집혀 **max priority elem**이 나온다.
++이건 §priority_scheduling에서 한번 데였던 함정인데, 같은 패턴을 의도적으로
++재사용했다.
++
++### 4.6 `thread_set_priority` — base 변경 vs donation
++
++```c
++void
++thread_set_priority (int new_priority) {
++    thread_current()->original_priority = new_priority;
++    refresh_priority();
++
++    if (!list_empty(&ready_list)) {
++        struct thread *highest = list_entry(
++            list_max(&ready_list, cmp_priority, NULL),
++            struct thread, elem);
++        if (highest->priority > thread_current()->priority)
++            thread_yield();
++    }
++}
++```
++
++**왜 `priority`가 아니라 `original_priority`에 대입하나?**
++
++`set_priority(new)`의 의미는 "내 base를 new로 바꿔라"이지
++"effective priority를 강제로 new로 만들어라"가 아니다. 만약 더 높은
++donation을 받고 있는 상태에서 base를 낮추면, donation은 유지하고
++**lock release 시점에야** 낮춰진 base로 떨어져야 한다.
++
++이걸 보장하는 게 `original_priority` 갱신 + `refresh_priority` 조합:
++- donations 비어 있음 → priority = new_priority (사용자 의도대로)
++- donations 있고 max > new → priority = donation max (보호됨)
++- donations 있고 max ≤ new → priority = new (의도대로 상승)
++
++세 케이스가 자연스럽게 한 함수로 처리된다.
++
++### 4.7 `cmp_donation_priority` — 별도 비교 함수
++
++```c
++static bool
++cmp_donation_priority (const struct list_elem *a,
++                       const struct list_elem *b,
++                       void *aux UNUSED) {
++    struct thread *ta = list_entry(a, struct thread, donation_elem);
++    struct thread *tb = list_entry(b, struct thread, donation_elem);
++    return ta->priority > tb->priority;
++}
++```
++
++기존 `cmp_priority`는 `struct thread.elem` 기준이라 `list_entry(a, struct thread, elem)`
++을 쓴다. donations 리스트는 `donation_elem`을 사용하므로 그대로 쓰면
++**전혀 엉뚱한 메모리를 priority로 해석**한다. 비교 대상이 다른 elem이면
++비교 함수도 분리해야 한다.
++
++---
++
++## 5. 실수했다가 고친 포인트
++
++| 증상 | 원인 | 수정 |
++|------|------|------|
++| `priority-donate-multiple` 실패 | `lock_release`에서 `donations` 전체를 비움 | `remove_with_lock`으로 해당 lock 것만 제거 |
++| `priority-donate-chain` 실패 | `donate_priority`에서 첫 hop만 올리고 종료 | `cur = holder`로 다음 hop 전진, depth 8 루프 |
++| `priority-donate-lower` 실패 | `set_priority`에서 `priority`에 직접 대입 | `original_priority`만 갱신 + `refresh_priority` |
++| 스택/리스트 깨짐 | donations에 `elem`을 넣음 | `donation_elem` 분리 사용 |
++| chain 따라가다 무한 루프 의심 | depth 제한 없음 | `for (depth < 8)` |
++
++---
++
++## 6. 테스트 결과
++
++```
++priority-donate-multiple   PASS
++priority-donate-one        PASS
++priority-donate-lower      PASS
++priority-donate-chain      PASS
++priority-donate-nest       PASS
++priority-donate-multiple2  PASS
++priority-donate-sema       PASS
++priority-condvar           PASS
++priority-fifo              PASS
++priority-sema              PASS
++priority-change            PASS
++priority-preempt           PASS
++alarm-* (전체)             PASS
++```
++
++Project 1 thread 영역 18개 테스트 전체 PASS.
++
++---
++
++## 7. 한 줄 요약
++
++> **요구 5가지(single/multiple/nested/회수/set_priority 공존)를 동시에
++> 만족하려면, "base 분리 + chain hop 포인터 + donor 리스트 + 별도 elem"
++> 4가지가 모두 필요했고, 그래서 헬퍼 3종(`donate_priority`/
++> `remove_with_lock`/`refresh_priority`)이 자연스럽게 나뉘었다.**
+diff --git a/TIL/priority_scheduling_study.md b/TIL/priority_scheduling_study.md
+new file mode 100644
+index 0000000..03c90f3
+--- /dev/null
++++ b/TIL/priority_scheduling_study.md
+@@ -0,0 +1,220 @@
++# Pintos Project 1 — Priority Scheduling 학습 정리
++
++## 1. 왜 수정했는가
++
++Pintos 기본 스케줄러는 `ready_list`에 `list_push_back`으로 thread를 넣고
++`list_pop_front`로 꺼내기 때문에, 더 높은 우선순위 thread가 먼저
++실행된다는 보장이 없다.
++
++요구사항은 다음과 같다.
++- 더 높은 우선순위 thread는 항상 먼저 CPU를 받는다.
++- 자신보다 높은 우선순위 thread가 ready 상태가 되면 즉시 양보(preemption)한다.
++- semaphore / condition variable의 waiters도 가장 우선순위가 높은 thread부터 깨운다.
++
++> alarm clock 단계의 sleep/wakeup·`sleep_list` 변경은 [alarm_clock_study.md](alarm_clock_study.md) 참고.
++
++---
++
++## 2. 변경 파일과 함수
++
++### `threads/thread.h`
++- `cmp_priority()` 외부 선언 추가 → `synch.c`에서도 ready 우선순위 비교를 사용해야 하므로 헤더에 노출
++- `extern struct list sleep_list` 선언 (alarm clock 단계에서 도입)
++
++```c
++bool cmp_priority(const struct list_elem *a,
++                  const struct list_elem *b,
++                  void *aux);
++
++extern struct list sleep_list;
++```
++
++### `threads/thread.c`
++- `cmp_priority`의 `static` 제거 → 외부 모듈에서 호출 가능
++- `thread_set_priority()` — 우선순위 변경 후 즉시 preemption 검사
++
++```c
++void
++thread_set_priority (int new_priority) {
++    thread_current()->priority = new_priority;
++
++    /* ready_list에 더 높은 우선순위가 있으면 즉시 양보 */
++    if (!list_empty(&ready_list)) {
++        struct thread *highest = list_entry(
++            list_max(&ready_list, cmp_priority, NULL),
++            struct thread, elem);
++
++        if (highest->priority > thread_current()->priority)
++            thread_yield();
++    }
++}
++```
++
++> ⚠️ **검토 필요**: `cmp_priority`는 내림차순(`a->priority > b->priority`)이라
++> `list_max`와 함께 쓰면 less function 의미가 뒤집혀 **가장 우선순위가 낮은**
++> thread가 반환된다. 의도대로라면 `list_min`을 쓰거나, ready_list가 이미
++> 우선순위 정렬되어 있으므로 `list_front(&ready_list)`를 쓰는 것이 맞다.
++> 자세한 내용은 §4 참고.
++
++### `threads/synch.c`
++
++#### `sema_up()` — 가장 높은 우선순위 waiter를 깨우도록 수정
++
++기존:
++```c
++if (!list_empty (&sema->waiters))
++    thread_unblock (list_entry (list_pop_front (&sema->waiters),
++                struct thread, elem));
++sema->value++;
++```
++
++문제점:
++- `sema_down()`은 `list_push_back`으로 waiters에 추가하므로 정렬되어 있지 않다.
++- `list_pop_front`로 꺼내면 우선순위 무시.
++
++수정 후:
++```c
++sema->value++;
++if (!list_empty (&sema->waiters)) {
++    /* 1. 가장 높은 우선순위 waiter 찾기
++          cmp_priority가 내림차순이므로 list_min이 곧 "최고 우선순위" */
++    struct list_elem *max_elem = list_min(&sema->waiters, cmp_priority, NULL);
++
++    /* 2. 리스트에서 제거 */
++    list_remove(max_elem);
++
++    /* 3. unblock */
++    thread_unblock(list_entry(max_elem, struct thread, elem));
++
++    /* 4. 깨운 thread가 현재보다 우선순위가 높으면 즉시 양보 */
++    if (!intr_context())
++        thread_yield();
++}
++```
++
++**포인트**
++- `sema->value++`를 `if` 위로 옮긴 이유: `thread_yield()` 시점엔 이미 value가
++  증가된 상태여야 다른 thread가 acquire 시도 시 통과할 수 있다.
++- `intr_context()` 검사: 인터럽트 핸들러 안에서는 `thread_yield()` 호출 금지.
++- `list_min` + `cmp_priority(내림차순)` = 우선순위 최댓값 (§4 참고).
++
++#### `cmp_sema_priority()` — 신규 추가
++
++```c
++static bool
++cmp_sema_priority(const struct list_elem *a,
++                  const struct list_elem *b,
++                  void *aux UNUSED) {
++    struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
++    struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
++
++    struct thread *ta = list_entry(list_begin(&sa->semaphore.waiters),
++                                   struct thread, elem);
++    struct thread *tb = list_entry(list_begin(&sb->semaphore.waiters),
++                                   struct thread, elem);
++    return ta->priority > tb->priority;
++}
++```
++
++왜 `list_begin`?
++- `cond_wait()`에서 각 thread는 자기 전용 `semaphore_elem`을 만들고
++  그 안의 semaphore에 단독으로 `sema_down`한다.
++- 따라서 `semaphore_elem.semaphore.waiters`에는 thread가 정확히 1개.
++- `list_begin`으로 그 thread를 꺼내 우선순위를 비교한다.
++
++#### `cond_signal()` — 가장 높은 우선순위 thread를 깨우도록 수정
++
++기존:
++```c
++if (!list_empty (&cond->waiters))
++    sema_up (&list_entry (list_pop_front (&cond->waiters),
++                struct semaphore_elem, elem)->semaphore);
++```
++
++수정 후:
++```c
++if (!list_empty (&cond->waiters)) {
++    struct list_elem *max_sema_elem =
++        list_min(&cond->waiters, cmp_sema_priority, NULL);
++    list_remove(max_sema_elem);
++    sema_up(&list_entry(max_sema_elem,
++                        struct semaphore_elem, elem)->semaphore);
++}
++```
++
++---
++
++## 3. 누적된 thread.c / timer.c 변경 한눈에 보기
++
++| 함수 | 변경 내용 | 단계 |
++|------|---------|------|
++| `thread_init()` | `list_init(&sleep_list)` 추가 | alarm clock |
++| `thread_unblock()` | `list_push_back` → `list_insert_ordered(cmp_priority)` | alarm clock |
++| `thread_yield()` | `list_push_back` → `list_insert_ordered(cmp_priority)` | alarm clock |
++| `thread_create()` | unblock 후 우선순위 비교 → 새 thread가 높으면 yield | alarm clock |
++| `thread_set_priority()` | ready_list 최고 우선순위와 비교, 낮아지면 yield | **priority** |
++| `cmp_priority()` | `static` 제거 → 외부 노출 | **priority** |
++| `cmp_wakeup_tick()` | 신규 (sleep_list 정렬용) | alarm clock |
++| `timer_sleep()` | busy-waiting 제거, block 방식으로 교체 | alarm clock |
++| `timer_interrupt()` | sleep_list 순회, wakeup_tick 도달 시 unblock | alarm clock |
++
++---
++
++## 4. `list_min` / `list_max`와 `cmp_priority` 관계 (헷갈림 주의)
++
++`list_min(less)`, `list_max(less)`는 둘 다 **"less" 의미의 비교 함수**를 받는다.
++즉 `less(a, b) == true`면 "a가 b보다 작다"로 해석한다.
++
++그런데 우리가 쓰는 `cmp_priority`는:
++```c
++return a->priority > b->priority;   /* 내림차순 */
++```
++
++less 의미로 해석하면 "우선순위가 큰 쪽이 작다"가 된다. 결과적으로:
++
++| 호출 | 실제로 반환되는 것 |
++|------|---------------------|
++| `list_min(list, cmp_priority, NULL)` | **우선순위가 가장 큰** thread |
++| `list_max(list, cmp_priority, NULL)` | **우선순위가 가장 작은** thread |
++
++> 따라서 "가장 높은 우선순위"를 찾을 땐 **`list_min`**을 사용해야 한다.
++> `thread_set_priority()`의 `list_max` 사용은 검토 필요.
++> ready_list는 이미 `cmp_priority` 내림차순으로 정렬되어 있어서
++> `list_front(&ready_list)` 한 줄이면 가장 높은 우선순위 thread를 얻을 수 있다.
++
++---
++
++## 5. 핵심 개념 요약
++
++| 용어 | 설명 |
++|------|------|
++| Preemption | 더 높은 우선순위 thread가 ready 되면 현재 thread가 즉시 CPU 양보 |
++| `cmp_priority` | ready 우선순위 내림차순 비교 (a > b) |
++| `cmp_sema_priority` | semaphore_elem 안의 단일 waiter thread 우선순위 비교 |
++| `list_min` + 내림차순 less | 최댓값(가장 높은 우선순위) 반환 |
++| `intr_context()` | 인터럽트 핸들러 안 여부. true면 `thread_yield()` 호출 금지 |
++
++---
++
++## 6. 테스트 결과
++
++도네이션(priority-donate-*) 7종은 아직 미구현이라 제외. 그 외 priority 테스트는 모두 PASS.
++
++```
++pass  priority-change
++pass  priority-preempt
++pass  priority-fifo
++pass  priority-sema
++pass  priority-condvar
++```
++
++도네이션 미구현으로 fail 예상되는 항목 (다음 단계에서 구현):
++```
++priority-donate-one
++priority-donate-multiple
++priority-donate-multiple2
++priority-donate-nest
++priority-donate-chain
++priority-donate-lower
++priority-donate-sema
++```
+diff --git a/pintos/devices/timer.c b/pintos/devices/timer.c
+index 796f5a8..fb7d46d 100755
+--- a/pintos/devices/timer.c
++++ b/pintos/devices/timer.c
+@@ -28,6 +28,9 @@ static intr_handler_func timer_interrupt;
+ static bool too_many_loops (unsigned loops);
+ static void busy_wait (int64_t loops);
+ static void real_time_sleep (int64_t num, int32_t denom);
++// wakeup 순으로 넣기 (최적화)
++static bool cmp_wakeup_tick (const struct list_elem *a, const struct list_elem *b, void *aux);
++
+ 
+ /* Sets up the 8254 Programmable Interval Timer (PIT) to
+    interrupt PIT_FREQ times per second, and registers the
+@@ -90,11 +93,32 @@ timer_elapsed (int64_t then) {
+ /* Suspends execution for approximately TICKS timer ticks. */
+ void
+ timer_sleep (int64_t ticks) {
++	/*
++	1. ticks가 0 이하이면 바로 종료
++	2. 현재 tick 저장
++	3. 현재 스레드 찾기
++	4. 깨어날 시간 = 현재 tick + sleep할 tick
++	5. 인터럽트 끄기
++	6. sleep_list에 wakeup_tick 기준으로 삽입
++	7. 현재 스레드를 block
++	8. 인터럽트 상태 복구
++	*/
++
++	 if (ticks <= 0)
++        return;
++
+ 	int64_t start = timer_ticks ();
+ 
+ 	ASSERT (intr_get_level () == INTR_ON);
+-	while (timer_elapsed (start) < ticks)
+-		thread_yield ();
++	
++	struct thread *t = thread_current ();
++    t->wakeup_tick = start + ticks;
++
++    enum intr_level old_level = intr_disable ();
++    // list_push_back (&sleep_list, &t->elem);
++	list_insert_ordered (&sleep_list, &t->elem, cmp_wakeup_tick, NULL);
++    thread_block ();
++    intr_set_level (old_level);
+ }
+ 
+ /* Suspends execution for approximately MS milliseconds. */
+@@ -124,7 +148,45 @@ timer_print_stats (void) {
+ /* Timer interrupt handler. */
+ static void
+ timer_interrupt (struct intr_frame *args UNUSED) {
++	 /* 전역 tick 값을 1 증가시킨다.
++       timer_interrupt는 매 timer tick마다 호출되므로,
++       이 값은 Pintos가 부팅된 이후 흐른 시간을 의미한다. */
+ 	ticks++;
++	/* code to add: 
++	   check sleep list and the global tick.
++	   find any threads to wake up,
++	   move them to the ready list if necessary.
++	   update the global tick.	
++	*/
++
++	 /* sleep_list의 첫 번째 원소부터 확인한다.
++       sleep_list에는 timer_sleep()에서 BLOCK된 스레드들이 들어 있다. */
++	struct list_elem *e = list_begin (&sleep_list);
++
++	/* sleep_list 끝에 도달할 때까지 순회한다. */
++	while (e != list_end (&sleep_list)) {
++		 /* list_elem을 실제 struct thread 포인터로 변환한다. */
++		struct thread *t = list_entry (e, struct thread, elem);
++
++		 /* 현재 tick이 해당 스레드의 wakeup_tick 이상이면
++           이제 깨워야 하는 시점이다. */
++		if (timer_ticks () >= t->wakeup_tick) {
++
++			/* 현재 원소를 sleep_list에서 제거한다.
++               list_remove(e)는 제거된 원소의 다음 원소를 반환하므로,
++               순회 중 삭제해도 다음 위치를 잃지 않는다. */
++			e = list_remove (e);
++
++			/* BLOCK 상태였던 스레드를 READY 상태로 바꾸고
++			ready_list에 넣어 스케줄링 대상이 되게 한다. */
++			thread_unblock (t);
++		} else {
++			/* wake up tick 기준 정렬 덕분에 더 이상 검사할 필요 없어서 종료 */
++			break;
++		}
++	}
++	/* 현재 실행 중인 스레드의 tick 사용량을 갱신하고,
++	time slice가 끝났다면 스케줄링이 필요함을 표시한다. */
+ 	thread_tick ();
+ }
+ 
+@@ -184,3 +246,19 @@ real_time_sleep (int64_t num, int32_t denom) {
+ 		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
+ 	}
+ }
++
++/* sleep_list를 wakeup_tick 기준으로 정렬하기 위한 비교 함수.
++   두 스레드를 비교하여, a의 wakeup_tick이 b보다 작으면 true를 반환한다.
++   즉, 더 빨리 깨어나야 하는 스레드가 리스트 앞쪽에 오도록 한다. (오름차순)*/
++static bool
++cmp_wakeup_tick (const struct list_elem *a,
++                 const struct list_elem *b,
++                 void *aux)
++{
++    (void) aux;
++
++    struct thread *ta = list_entry(a, struct thread, elem);
++    struct thread *tb = list_entry(b, struct thread, elem);
++
++    return ta->wakeup_tick < tb->wakeup_tick;
++}
+\ No newline at end of file
+diff --git a/pintos/include/threads/thread.h b/pintos/include/threads/thread.h
+index 33b46e6..32b2eb6 100755
+--- a/pintos/include/threads/thread.h
++++ b/pintos/include/threads/thread.h
+@@ -91,9 +91,16 @@ struct thread {
+ 	enum thread_status status;          /* Thread state. */
+ 	char name[16];                      /* Name (for debugging purposes). */
+ 	int priority;                       /* Priority. */
++	int64_t wakeup_tick;		/* 해당 스레드가 sleep 상태에서 깨어나야 하는 tick 시점.
++								timer_sleep()에서 설정되며, timer_interrupt()에서 비교되어 깨워진다. */
++
++	int original_priority;      /* donation 이전 원래 우선순위 */
++	struct lock *wait_on_lock;  /* 현재 기다리고 있는 lock */
++	struct list donations;      /* 나에게 donation한 thread들의 리스트 */
++	struct list_elem donation_elem;  /* donations 리스트 연결용 */
+ 
+ 	/* Shared between thread.c and synch.c. */
+-	struct list_elem elem;              /* List element. */
++	struct list_elem elem;             /* ready_list, sleep_list용 */
+ 
+ #ifdef USERPROG
+ 	/* Owned by userprog/process.c. */
+@@ -113,6 +120,11 @@ struct thread {
+    If true, use multi-level feedback queue scheduler.
+    Controlled by kernel command-line option "-o mlfqs". */
+ extern bool thread_mlfqs;
++bool cmp_priority(const struct list_elem *a,
++                  const struct list_elem *b,
++                  void *aux);
++
++extern struct list sleep_list;
+ 
+ void thread_init (void);
+ void thread_start (void);
+@@ -135,6 +147,7 @@ void thread_yield (void);
+ 
+ int thread_get_priority (void);
+ void thread_set_priority (int);
++void refresh_priority(void);
+ 
+ int thread_get_nice (void);
+ void thread_set_nice (int);
+diff --git a/pintos/threads/synch.c b/pintos/threads/synch.c
+index 8ca3230..d10e58e 100755
+--- a/pintos/threads/synch.c
++++ b/pintos/threads/synch.c
+@@ -32,6 +32,12 @@
+ #include "threads/interrupt.h"
+ #include "threads/thread.h"
+ 
++/* static 함수 선언 */
++static void donate_priority(void);
++static void remove_with_lock(struct lock *lock);
++static bool cmp_donation_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
++
++
+ /* Initializes semaphore SEMA to VALUE.  A semaphore is a
+    nonnegative integer along with two atomic operators for
+    manipulating it:
+@@ -109,10 +115,29 @@ sema_up (struct semaphore *sema) {
+ 	ASSERT (sema != NULL);
+ 
+ 	old_level = intr_disable ();
+-	if (!list_empty (&sema->waiters))
+-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
+-					struct thread, elem));
+ 	sema->value++;
++	if (!list_empty (&sema->waiters)){
++		/*  현재: 맨 앞 thread를 꺼냄 (우선순위 무시)
++			문제: waiters가 정렬되어 있지 않아서
++					가장 높은 우선순위 thread가 아닐 수 있음
++			수정 필요: list_max()로 가장 높은 우선순위 thread를 찾아서 꺼내야 함 */	
++		// thread_unblock (list_entry (list_pop_front (&sema->waiters),
++		// 			struct thread, elem));
++
++		/* 1. 가장 높은 우선순위 elem 찾기 */
++		struct list_elem *max_elem = list_min(&sema->waiters, cmp_priority, NULL);
++
++		/* 2. 리스트에서 제거 */
++		list_remove(max_elem);
++
++		/* thread_unblock 호출 */
++		thread_unblock (list_entry (max_elem, struct thread, elem));
++
++		/* 높은 우선순위 thread가 unblock됐으면 즉시 양보 */
++		if (!intr_context())
++			thread_yield();
++	}
++	
+ 	intr_set_level (old_level);
+ }
+ 
+@@ -188,8 +213,29 @@ lock_acquire (struct lock *lock) {
+ 	ASSERT (!intr_context ());
+ 	ASSERT (!lock_held_by_current_thread (lock));
+ 
++	/* 
++		lock 획득 시도 전:
++		1. 현재 thread의 wait_on_lock = 이 lock으로 설정
++		2. lock->holder가 있으면 (누가 갖고 있으면)
++		→ holder에게 donation
++		→ nested donation 체인 탐색
++
++		lock 획득 후:
++		3. wait_on_lock = NULL (더 이상 기다리지 않음)
++		4. lock->holder = 현재 thread
++	*/
++	struct thread *cur = thread_current();
++	if(lock->holder != NULL){
++		cur->wait_on_lock = lock;
++		list_insert_ordered(&lock->holder->donations,
++							&cur->donation_elem,
++							cmp_donation_priority, NULL);
++		donate_priority();
++	}
++
+ 	sema_down (&lock->semaphore);
+-	lock->holder = thread_current ();
++	cur->wait_on_lock = NULL;
++	lock->holder = cur;
+ }
+ 
+ /* Tries to acquires LOCK and returns true if successful or false
+@@ -219,13 +265,23 @@ lock_try_acquire (struct lock *lock) {
+    handler. */
+ void
+ lock_release (struct lock *lock) {
+-	ASSERT (lock != NULL);
+-	ASSERT (lock_held_by_current_thread (lock));
+-
+-	lock->holder = NULL;
+-	sema_up (&lock->semaphore);
++    ASSERT (lock != NULL);
++    ASSERT (lock_held_by_current_thread (lock));
++
++    /* 1. 이 lock 때문에 donation한 thread들을
++          donations 리스트에서 제거
++          → remove_with_lock() 호출 */
++	remove_with_lock(lock);
++    /* 2. donations 리스트 기반으로
++          현재 thread 우선순위 재계산
++          → refresh_priority() 호출 */
++	refresh_priority();
++    /* 3. lock holder 해제 */
++    lock->holder = NULL;
++
++    /* 4. semaphore 반환 */
++    sema_up (&lock->semaphore);
+ }
+-
+ /* Returns true if the current thread holds LOCK, false
+    otherwise.  (Note that testing whether some other thread holds
+    a lock would be racy.) */
+@@ -242,6 +298,22 @@ struct semaphore_elem {
+ 	struct semaphore semaphore;         /* This semaphore. */
+ };
+ 
++/* semaphore_elem 안의 thread 우선순위를 비교하는 함수 */
++static bool
++cmp_sema_priority(const struct list_elem *a,
++                  const struct list_elem *b,
++                  void *aux UNUSED) {
++    struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
++    struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
++
++    /* 각 semaphore의 waiters에서 thread 우선순위 비교 */
++    struct thread *ta = list_entry(list_begin(&sa->semaphore.waiters),
++                                   struct thread, elem);
++    struct thread *tb = list_entry(list_begin(&sb->semaphore.waiters),
++                                   struct thread, elem);
++    return ta->priority > tb->priority;
++}
++
+ /* Initializes condition variable COND.  A condition variable
+    allows one piece of code to signal a condition and cooperating
+    code to receive the signal and act upon it. */
+@@ -302,9 +374,28 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
+ 	ASSERT (!intr_context ());
+ 	ASSERT (lock_held_by_current_thread (lock));
+ 
+-	if (!list_empty (&cond->waiters))
+-		sema_up (&list_entry (list_pop_front (&cond->waiters),
+-					struct semaphore_elem, elem)->semaphore);
++	if (!list_empty (&cond->waiters)) {
++
++		/* cond->waiters는 semaphore_elem의 리스트.
++		   각 semaphore_elem은 대기 중인 thread의 개별 semaphore를 갖고 있음.
++		   list_pop_front()는 우선순위를 무시하고 맨 앞을 꺼내므로,
++		   list_min() + cmp_sema_priority()로 가장 높은 우선순위 thread를
++		   가진 semaphore_elem을 찾아서 꺼냄. */
++
++		/* 1. cond->waiters에서 가장 높은 우선순위 semaphore_elem 찾기
++		      cmp_sema_priority: semaphore_elem 안의 semaphore의 waiters에서
++		      thread 우선순위를 비교하는 함수 */
++		struct list_elem *max_sema_elem = list_min(&cond->waiters,
++		                                           cmp_sema_priority, NULL);
++
++		/* 2. 찾은 semaphore_elem을 waiters 리스트에서 제거 */
++		list_remove(max_sema_elem);
++
++		/* 3. 해당 semaphore_elem의 semaphore에 sema_up() 호출
++		      → 대기 중인 thread를 깨움 */
++		sema_up(&list_entry(max_sema_elem,
++		                    struct semaphore_elem, elem)->semaphore);
++	}
+ }
+ 
+ /* Wakes up all threads, if any, waiting on COND (protected by
+@@ -321,3 +412,89 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
+ 	while (!list_empty (&cond->waiters))
+ 		cond_signal (cond, lock);
+ }
++
++
++static void
++donate_priority(void) {
++    /* 1. 현재 thread 가져오기 */
++	struct thread *cur = thread_current();
++    /* 2. 최대 8단계까지 반복 */
++    for (int depth = 0; depth < 8; depth++) {
++
++        /* 3. 현재 thread가 기다리는 lock 확인 */
++        /* wait_on_lock이 NULL이면 중단 */
++		if(cur->wait_on_lock == NULL){
++			break;
++		}
++
++        /* 4. lock의 holder 확인 */
++        /* holder가 NULL이면 중단 */
++		struct thread *holder = cur->wait_on_lock->holder;
++		if(holder == NULL){
++			break;
++		}
++        /* 5. holder 우선순위가 나보다 낮으면 올려줌 */
++		if(holder->priority >= cur -> priority){
++			break;
++		}
++
++		holder->priority = cur -> priority;	
++        /* 6. 다음 체인으로 이동 */
++        /* thread = lock->holder */
++		cur = holder;
++		
++    }
++}
++
++static void
++remove_with_lock(struct lock *lock) {
++
++	struct thread *cur = thread_current();
++	struct list_elem *e;
++
++	/* 1. 현재 thread의 donations 리스트 순회 */
++	for(e = list_begin(&cur->donations); 
++		e != list_end(&cur->donations);
++		){
++		
++		/* 2. 각 donation_elem에서 thread 꺼내기 */
++		struct thread *t = list_entry(e, struct thread, donation_elem);
++
++		/* 3. 그 thread의 wait_on_lock이 이 lock이면 */
++		if (t->wait_on_lock == lock) {
++			/* donations 리스트에서 제거 */
++			e = list_remove(e);
++		} else {
++			e = list_next(e);
++		}
++	}
++ 
++}
++
++void
++refresh_priority(void) {
++    /* 1. 현재 thread 가져오기 */
++	struct thread *cur = thread_current();
++    /* 2. 우선순위를 original_priority로 초기화 */
++	cur->priority = cur->original_priority;
++
++    /* 3. donations 리스트가 비어있지 않으면 */
++    /*    donations 중 가장 높은 우선순위 찾기 */
++    /*    그 우선순위가 현재보다 높으면 업데이트 */
++	if (!list_empty(&cur->donations)) {
++		struct list_elem *e = list_min(&cur->donations, cmp_donation_priority, NULL);
++		struct thread *top = list_entry(e, struct thread, donation_elem);
++		if (top->priority > cur->priority)
++			cur->priority = top->priority;
++	}
++}
++
++
++static bool
++cmp_donation_priority (const struct list_elem *a,
++                       const struct list_elem *b,
++                       void *aux UNUSED) {
++    struct thread *ta = list_entry(a, struct thread, donation_elem);
++    struct thread *tb = list_entry(b, struct thread, donation_elem);
++    return ta->priority > tb->priority;   /* 내림차순 less */
++}
+diff --git a/pintos/threads/thread.c b/pintos/threads/thread.c
+index 5ce8350..ae26136 100755
+--- a/pintos/threads/thread.c
++++ b/pintos/threads/thread.c
+@@ -36,6 +36,7 @@ static struct thread *initial_thread;
+ 
+ /* Lock used by allocate_tid(). */
+ static struct lock tid_lock;
++struct list sleep_list;
+ 
+ /* Thread destruction requests */
+ static struct list destruction_req;
+@@ -62,6 +63,8 @@ static void init_thread (struct thread *, const char *name, int priority);
+ static void do_schedule(int status);
+ static void schedule (void);
+ static tid_t allocate_tid (void);
++// 우선순위 비교
++bool cmp_priority (const struct list_elem *, const struct list_elem *, void *);
+ 
+ /* Returns true if T appears to point to a valid thread. */
+ #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
+@@ -108,6 +111,7 @@ thread_init (void) {
+ 	/* Init the globla thread context */
+ 	lock_init (&tid_lock);
+ 	list_init (&ready_list);
++	list_init (&sleep_list);
+ 	list_init (&destruction_req);
+ 
+ 	/* Set up a thread structure for the running thread. */
+@@ -180,6 +184,9 @@ tid_t
+ thread_create (const char *name, int priority,
+ 		thread_func *function, void *aux) {
+ 	struct thread *t;
++	/* Compare the priorites of the currently running thread and the newly inserted one.
++	   Yield the CPU if the newly arriving thread has higher priority
++	*/
+ 	tid_t tid;
+ 
+ 	ASSERT (function != NULL);
+@@ -190,7 +197,7 @@ thread_create (const char *name, int priority,
+ 		return TID_ERROR;
+ 
+ 	/* Initialize thread. */
+-	init_thread (t, name, priority);
++	init_thread (t, name, priority); 
+ 	tid = t->tid = allocate_tid ();
+ 
+ 	/* Call the kernel_thread if it scheduled.
+@@ -207,6 +214,10 @@ thread_create (const char *name, int priority,
+ 	/* Add to run queue. */
+ 	thread_unblock (t);
+ 
++	/* 새로 생성된 스레드의 우선순위가 현재 스레드보다 높으면 CPU를 양보한다. */
++	if (t->priority > thread_current()->priority)
++		thread_yield();
++
+ 	return tid;
+ }
+ 
+@@ -240,7 +251,9 @@ thread_unblock (struct thread *t) {
+ 
+ 	old_level = intr_disable ();
+ 	ASSERT (t->status == THREAD_BLOCKED);
+-	list_push_back (&ready_list, &t->elem);
++	// list_push_back (&ready_list, &t->elem);
++	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
++
+ 	t->status = THREAD_READY;
+ 	intr_set_level (old_level);
+ }
+@@ -303,7 +316,8 @@ thread_yield (void) {
+ 
+ 	old_level = intr_disable ();
+ 	if (curr != idle_thread)
+-		list_push_back (&ready_list, &curr->elem);
++		// list_push_back (&ready_list, &curr->elem);
++		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL);
+ 	do_schedule (THREAD_READY);
+ 	intr_set_level (old_level);
+ }
+@@ -311,7 +325,26 @@ thread_yield (void) {
+ /* Sets the current thread's priority to NEW_PRIORITY. */
+ void
+ thread_set_priority (int new_priority) {
+-	thread_current ()->priority = new_priority;
++
++	/* donation 쪽 정의
++		1. new_priority를 priority가 아닌
++		original_priority에 저장
++		2. refresh_priority()로 실제 우선순위 재계산
++		→ donations 있으면 donation 값 유지
++		→ donations 없으면 new_priority 적용
++		3. yield 조건 확인
++	*/
++	thread_current()->original_priority = new_priority;
++
++	refresh_priority();
++
++	if (!list_empty(&ready_list)) {
++	struct thread *highest = list_entry(
++		list_max(&ready_list, cmp_priority, NULL),
++		struct thread, elem);
++	if (highest->priority > thread_current()->priority)
++		thread_yield();
++	}
+ }
+ 
+ /* Returns the current thread's priority. */
+@@ -397,6 +430,29 @@ kernel_thread (thread_func *function, void *aux) {
+ 
+ /* Does basic initialization of T as a blocked thread named
+    NAME. */
++
++/* 스레드 T를 BLOCKED 상태의 기본 스레드로 초기화한다.
++ *
++ * NAME: 디버깅용 스레드 이름
++ * PRIORITY: 스레드의 초기 우선순위 (PRI_MIN ~ PRI_MAX)
++ *
++ * 초기화 항목:
++ * - 스레드 구조체 전체를 0으로 초기화 (memset)
++ * - 상태: THREAD_BLOCKED (생성 직후 대기 상태) 
++ * - 이름, 스택 포인터, 우선순위 설정
++ *
++ * Priority Donation 관련:
++ * - original_priority: donation 이전 원래 우선순위 보존용
++ *                      lock 반환 시 복원 기준값으로 사용
++ * - wait_on_lock: 현재 기다리는 lock 포인터
++ *                 NULL = 아무 lock도 기다리지 않음
++ *                 nested donation에서 체인 탐색에 사용
++ * - donations: 이 스레드에게 priority를 기부한 스레드들의 리스트
++ *              multiple donation 처리 및 lock 반환 시
++ *              effective priority 재계산에 사용
++ *
++ * 주의: 이 함수 호출 후 thread_unblock()을 통해
++ *       READY 상태로 전환해야 스케줄링 대상이 된다. */
+ static void
+ init_thread (struct thread *t, const char *name, int priority) {
+ 	ASSERT (t != NULL);
+@@ -408,6 +464,10 @@ init_thread (struct thread *t, const char *name, int priority) {
+ 	strlcpy (t->name, name, sizeof t->name);
+ 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
+ 	t->priority = priority;
++	/* Priority Donation 관련 초기화 */
++	t->original_priority = priority;  /* 원래 우선순위 저장 */
++	t->wait_on_lock = NULL;           /* 기다리는 lock 없음 */
++	list_init(&t->donations);         /* donation 리스트 초기화 */
+ 	t->magic = THREAD_MAGIC;
+ }
+ 
+@@ -588,3 +648,18 @@ allocate_tid (void) {
+ 
+ 	return tid;
+ }
++
++/* ready_list를 우선순위(priority) 기준으로 정렬하기 위한 비교 함수.
++   두 스레드를 비교하여, a의 우선순위가 b보다 높으면 true를 반환한다.
++   즉, 우선순위가 높은 스레드가 리스트 앞쪽에 오도록 한다. (내림차순)*/
++bool cmp_priority (const struct list_elem *a,
++              const struct list_elem *b,
++              void *aux)
++{
++	(void) aux; // aux 안쓴다.
++
++    struct thread *ta = list_entry(a, struct thread, elem);
++    struct thread *tb = list_entry(b, struct thread, elem);
++
++    return ta->priority > tb->priority;
++}
+\ No newline at end of file
