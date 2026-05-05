@@ -3,6 +3,10 @@
 > 같은 코드인데 PR diff에 수백~수천 라인이 "전부 변경됨"으로 떠서 머지가 사실상 불가능했던 사건.
 > 원인은 두 가지 — **줄 끝(CRLF↔LF)** + **파일 권한(실행비트)** — 이 동시에 작용하고 있었다.
 
+![Windows git bash 에서 본 "all modified" — 실제 사건 당시 화면 재현](img/all_modified_header.png)
+
+> ↑ 코드는 한 줄도 안 건드렸는데 리포 전체가 빨간 modified. 이게 우리가 PR 화면에서 마주한 그림이다.
+
 ---
 
 ## 1. 무엇이 보였나
@@ -55,52 +59,65 @@ Your branch is ahead of 'origin/dev' by 1 commit.
 nothing to commit, working tree clean
 ```
 
-### Stage 2 — CRLF 노이즈만
+### Stage 2 — CRLF 노이즈만 ⭐ (Windows git bash 실제 캡쳐)
 
-작업 트리의 텍스트 파일들에 `sed -i 's/$/\r/'` 로 CRLF 주입 (Windows 측에서 편집·저장된 상황을 재현):
+작업 트리의 텍스트 파일들에 `sed -i 's/$/\r/'` 로 CRLF 주입 (Windows 측에서 편집·저장된 상황을 재현). **아래 캡쳐 3장은 실제 Windows git bash 에서 찍은 것** — 사건 당시 팀이 본 화면 그대로다.
+
+#### 캡쳐 1 — `git status` 상단: "all modified" 의 시각적 충격
+
+![git status 상단 — 빨간 modified 행렬](img/all_modified_header.png)
+
+> 보다시피 코드 한 줄 안 건드렸는데 `.devcontainer/devcontainer.json`, `README.md`, `TIL/*.md`, `pintos/Makefile*`, `pintos/devices/*.c`, `pintos/filesys/*.c` ... 가 모두 빨간색 modified.
+> PR 리뷰어 입장에선 어디서부터 봐야 할지 막막한 상태.
+
+#### 캡쳐 2 — `git status` 하단: 끝나지 않는 modified 목록
+
+![git status 하단 — 계속되는 modified](img/all_modffied_footer.png)
+
+> 화면 전체가 modified. `pintos/tests/vm/*`, `pintos/threads/*`, `pintos/userprog/*`, `pintos/vm/*` — 사실상 리포 전체.
+
+#### 캡쳐 3 — `git diff --stat` 의 결정적 증거
+
+![git diff --stat — insertions == deletions](img/diff_stats.png)
+
+> **마지막 줄이 핵심 증거**:
+> ```
+> 358 files changed, 23517 insertions(+), 23517 deletions(-)
+> ```
+> **insertions 와 deletions 가 정확히 같은 23517** — 라인 단위로 코드가 변경된 게 아니라, **모든 라인이 통째로 삭제 후 재삽입**되고 있다는 뜻. 라인 내용은 동일하고 라인 종결자(`\n` ↔ `\r\n`)만 다를 때 정확히 이 패턴이 나온다.
+>
+> 또한 우측의 막대 그래프(`+++++-----`)도 +/- 가 균등 — 일반적인 코드 변경이라면 비대칭이어야 정상.
+
+#### 보조 증거 — `cat -A` 로 줄 끝 문자 가시화
+
+(시연 환경에서 추가 확인. `$` = LF, `^M$` = CRLF):
 
 ```
-$ git status | head
-On branch dev
-Changes not staged for commit:
-	modified:   .devcontainer/devcontainer.json
-	modified:   README.md
-	modified:   TIL/alarm_clock_study.md
-	... (총 358개) ...
-
-modified file count: 358
-```
-
-**diff 통계 — "삽입"과 "삭제"가 똑같다 = 라인 단위로 변경이 아니라 라인 종결자만 다르다는 결정적 증거:**
-
-```
-$ git diff --stat | tail -1
-358 files changed, 23517 insertions(+), 23517 deletions(-)
-```
-
-**`cat -A` 로 줄 끝 문자를 가시화** (`$` = LF, `^M$` = CRLF):
-
-```
-$ git diff pintos/userprog/syscall.c | grep '^[-+][^-+]' | head -3 | cat -A
+$ git diff pintos/userprog/syscall.c | grep '^-[^-]' | head -3 | cat -A
 -#include "userprog/syscall.h"$
 -#include <stdio.h>$
 -#include <syscall-nr.h>$
 
-$ git diff pintos/userprog/syscall.c | grep '^[-+][^-+]' | tail -3 | cat -A
-+^I^I^Ithread_exit();^M$
-+^I}^M$
-+}^M$
+$ git diff pintos/userprog/syscall.c | grep '^+[^+]' | head -3 | cat -A
++#include "userprog/syscall.h"^M$
++#include <stdio.h>^M$
++#include <syscall-nr.h>^M$
 ```
 
-**hex dump 로 바이트 레벨 비교:**
+→ `-` 라인(HEAD blob)은 `$` (LF) 로 끝, `+` 라인(작업 트리)은 `^M$` (CRLF) 로 끝.
+**라인 내용은 한 글자도 안 다르다.**
+
+#### 보조 증거 — hex dump 로 바이트 레벨 비교
 
 ```
-[작업 트리, 첫 줄 끝]
-22 0d 0a 23   →  "  \r \n  #     ← CRLF
+[작업 트리, 첫 줄 끝 4 바이트]
+22 0d 0a 23   →   "  \r \n  #     ← CRLF (\r\n)
 
-[HEAD blob, 첫 줄 끝]
-22 0a 23 69   →  "  \n  #  i     ← LF
+[HEAD blob, 첫 줄 끝 3 바이트]
+22 0a 23      →   "  \n  #         ← LF (\n)
 ```
+
+→ 차이는 **`\r` 1바이트**. 그것 하나가 358 개 파일 × 평균 65 라인 ≈ **23,000 + 라인의 가짜 변경**으로 증폭됐다.
 
 ### Stage 3 — 파일 권한 노이즈만
 
@@ -204,13 +221,19 @@ git rm --cached -r . && git reset --hard   # 작업 트리 재정렬
 
 ## 5. 발표용 요약 슬라이드
 
-> "PR diff 가 수만 라인으로 폭발해서 코드 리뷰가 불가능했다."
+> **사건 한 줄**: "PR diff 가 23,517 라인으로 폭발해서 코드 리뷰가 불가능했다."
+>
+> **결정적 증거 한 장** (`git diff --stat`):
+> ```
+> 358 files changed, 23517 insertions(+), 23517 deletions(-)
+> ```
+> insertions 와 deletions 가 정확히 같다 = 코드가 바뀐 게 아니라 줄 끝 문자만 바뀌었다.
 >
 > **원인**: CRLF/LF 차이 (358 파일, 47k 라인 노이즈) + 파일 권한 차이 (630 파일 mode-only 노이즈)
 >
 > **해결**:
-> 1. `.gitattributes` 로 줄 끝을 LF로 강제 (저장소에 박힘)
-> 2. `core.filemode=false` 로 실행비트 차이 무시 (각자 설정)
+> 1. `.gitattributes` 로 줄 끝을 LF로 강제 (저장소에 박힘, 모두에게 적용)
+> 2. `core.filemode=false` 로 실행비트 차이 무시 (각자 한 번 설정)
 >
 > **검증**: 어느 한 쪽만으로는 노이즈의 절반이 살아남음 → **둘 다 필요**
 
