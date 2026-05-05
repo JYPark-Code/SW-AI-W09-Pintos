@@ -50,6 +50,7 @@ syscall_init (void) {
 
 static void
 validate_user_addr (const void *uaddr) {
+	/* 유저가 넘긴 주소가 커널 주소이거나 실제 매핑되지 않은 주소면 종료한다. */
 	if (uaddr == NULL || !is_user_vaddr(uaddr) || pml4_get_page(thread_current()->pml4, uaddr) == NULL) {
 		thread_current()->exit_status = -1;
 		thread_exit();
@@ -58,6 +59,7 @@ validate_user_addr (const void *uaddr) {
 
 static void
 validate_user_string (const char *str) {
+	/* 문자열 인자는 첫 주소만으로는 부족하므로 '\0'까지 모든 글자 주소를 검사한다. */
 	while (true) {
 		validate_user_addr (str);
 		if (*str == '\0')
@@ -114,6 +116,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_OPEN: {
 			const char *file = (const char *) f->R.rdi;
 		
+			/* open()의 file 인자는 문자열 포인터라서 문자열 전체를 검증한다. */
 			validate_user_string (file);
 		
 			lock_acquire (&filesys_lock);
@@ -121,6 +124,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			lock_release (&filesys_lock);
 		
 			if (opened_file == NULL) {
+				/* 없는 파일 또는 열기 실패는 fd 대신 -1을 반환한다. */
 				f->R.rax = -1;
 				break;
 			}
@@ -129,11 +133,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			int fd = cur->next_fd;
 		
 			if (fd >= 128) {
+				/* fd 테이블이 가득 찼다면 방금 연 파일을 닫고 실패 처리한다. */
 				file_close (opened_file);
 				f->R.rax = -1;
 				break;
 			}
 		
+			/* 커널 내부 파일 포인터는 fd 테이블에 숨기고, 유저에게는 fd 번호만 반환한다. */
 			cur->fd_table[fd] = opened_file;
 			cur->next_fd++;
 		

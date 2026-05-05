@@ -107,8 +107,8 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 	int exit_status;
 
-	struct file *fd_table[128];
-	int next_fd;
+	struct file *fd_table[128];         /* fd 번호를 실제 열린 파일 객체에 매핑한다. */
+	int next_fd;                        /* 다음 open() 성공 시 유저에게 반환할 fd 번호. */
 
 	struct thread *parent;
 	struct list children;

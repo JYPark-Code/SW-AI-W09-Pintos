@@ -476,6 +476,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init (&t->wait_sema, 0);
 	sema_init (&t->exit_sema, 0);
 	t->parent = NULL;
+	/* fd 0, 1은 stdin/stdout으로 예약하고 일반 파일은 fd 2부터 배정한다. */
 	t->next_fd = 2;
 #endif
 	t->magic = THREAD_MAGIC;
