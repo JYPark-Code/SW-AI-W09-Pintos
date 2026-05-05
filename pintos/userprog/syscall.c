@@ -9,6 +9,9 @@
 #include "threads/flags.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "filesys/filesys.h"
+#include "threads/mmu.h"
+
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -41,8 +44,10 @@ syscall_init (void) {
 
 static void
 validate_user_addr (const void *uaddr) {
-	if (uaddr == NULL || !is_user_vaddr(uaddr))
-		thread_exit();
+    if (uaddr == NULL || !is_user_vaddr(uaddr) || pml4_get_page(thread_current()->pml4, uaddr) == NULL) {
+        thread_current ()->exit_status = -1;
+        thread_exit ();
+    }
 }
 
 void
@@ -76,6 +81,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			}
 			break;
 		}
+		case SYS_CREATE: {
+			const char *file = (const char *) f->R.rdi;
+			unsigned initial_size = (unsigned) f->R.rsi;
+
+			validate_user_addr (file);
+			f->R.rax = filesys_create (file, initial_size);
+			break;
+		}
+ 
 		default:
 			printf("unhandled syscall: %llu\n",
 			       (unsigned long long) sysno);

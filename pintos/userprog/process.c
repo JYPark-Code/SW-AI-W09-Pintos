@@ -57,7 +57,7 @@ argument_stack (char **argv, int argc, struct intr_frame *_if) {
 	_if->R.rdi = (uint64_t) argc;
 
 	rsp -= sizeof (uintptr_t);
-	*(uintptr_t *) rsp = 0;
+	// *(uintptr_t *) rsp = 0;
 
 	_if->rsp = (uintptr_t) rsp;
 }
@@ -474,13 +474,13 @@ load (const char *file_name, struct intr_frame *if_) {
 				break;
 		}
 	}
-
+	
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
 
 	/* Start address. */
-	if_->rip = ehdr.e_entry;
+	if_->rip = ehdr.e_entry;   
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
