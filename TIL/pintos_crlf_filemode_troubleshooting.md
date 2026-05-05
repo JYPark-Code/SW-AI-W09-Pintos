@@ -58,9 +58,9 @@
 >
 > dev container (Linux) 와 Windows native git 의 기본값 차이 — 줄 끝 자동 변환 + 권한 비트 — 가 표면화된 것이고, 이건 **누군가의 실수가 아니라 환경의 충돌**이다.
 
-### 사이드바 — 옆 팀의 "소문자 브랜치 컨벤션" 은 별개 이슈
+### 사이드바 — 팀 동료의 "소문자 브랜치 컨벤션도 CRLF 때문 아니냐?" 질문 검증
 
-옆 팀에서 "CRLF/LF 이슈 때문에 GitHub 브랜치 이름을 모두 소문자 컨벤션으로 통일했다" 는 이야기가 있었다. **검증 결과: 기술적으로 우리 CRLF/filemode 이슈와는 별개**다.
+이 트러블슈팅을 정리하던 중 팀 동료가 "GitHub 브랜치 이름을 모두 소문자 컨벤션으로 통일하는 것도 CRLF/LF 이슈 때문인 거 아니냐?" 고 물었다. **검증 결과: 기술적으로 우리 CRLF/filemode 이슈와는 별개**다.
 
 | 축 | 우리 이슈 (CRLF / filemode) | 소문자 브랜치 컨벤션 (case sensitivity) |
 |---|---|---|
@@ -71,7 +71,7 @@
 
 소문자 브랜치 컨벤션의 진짜 이유는 **case-insensitive 파일시스템에서의 ref 충돌**이다. git 은 브랜치를 `.git/refs/heads/<branch-name>` 파일로 저장하는데, NTFS (Windows) 와 macOS HFS+ 는 기본적으로 대소문자를 구분 안 한다 → `feature/Login` 과 `feature/login` 이 같은 파일로 취급되어 충돌. 이걸 막으려고 소문자로 통일하는 것.
 
-→ **CRLF 와 같은 "OS 간 git 충돌" 패밀리에 속하긴 하지만, 메커니즘은 완전히 다르다.** 이 트러블슈팅 doc 의 fix (`.gitattributes` + `core.filemode`) 와는 무관하므로 별도 정책으로 다룬다. 옆 팀의 결정 자체는 옳다 (다른 이유로).
+→ **CRLF 와 같은 "OS 간 git 충돌" 패밀리에 속하긴 하지만, 메커니즘은 완전히 다르다.** 이 트러블슈팅 doc 의 fix (`.gitattributes` + `core.filemode`) 와는 무관하므로 별도 정책으로 다룬다. 소문자 브랜치 컨벤션 자체는 좋은 관행이다 — 단지 그 정당성이 CRLF 가 아니라 case sensitivity 에서 온다.
 
 ---
 
