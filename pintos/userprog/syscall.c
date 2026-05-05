@@ -50,6 +50,16 @@ validate_user_addr (const void *uaddr) {
     }
 }
 
+static void
+validate_user_string (const char *str) {
+	while (true) {
+		validate_user_addr (str);
+		if (*str == '\0')
+			return;
+		str++;
+	}
+}
+
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t sysno = f->R.rax;
@@ -87,6 +97,34 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 			validate_user_addr (file);
 			f->R.rax = filesys_create (file, initial_size);
+			break;
+		}
+		case SYS_OPEN: {
+			const char *file = (const char *) f->R.rdi;
+			struct thread *cur = thread_current ();
+			int fd = -1;
+
+			validate_user_string (file);
+
+			for (int i = 2; i < FD_MAX; i++) {
+				if (cur->fd_table[i] == NULL) {
+					fd = i;
+					break;
+				}
+			}
+
+			if (fd == -1) {
+				f->R.rax = (uint64_t) -1;
+				break;
+			}
+
+			cur->fd_table[fd] = filesys_open (file);
+			if (cur->fd_table[fd] == NULL) {
+				f->R.rax = (uint64_t) -1;
+				break;
+			}
+
+			f->R.rax = fd;
 			break;
 		}
  
