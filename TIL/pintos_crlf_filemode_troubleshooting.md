@@ -40,11 +40,38 @@
 
 **결과**: 작업 트리는 그대로인데 `git status` 가 리포 전체를 빨간 modified 로 도배 → 위 hero 이미지 같은 화면.
 
+### 정상 측 — devcontainer 안에서는 항상 깨끗했다
+
+같은 리포, 같은 커밋. 다만 **dev container (Linux) 안에서 본 `git status`**:
+
+![devcontainer 측에서 본 같은 리포 — clean](img/clean_status.png)
+
+> `nothing to commit, working tree clean` — 한 줄 modified 도 없다.
+>
+> 이게 우리가 처음 리포를 만들었을 때 본 모습이고, 매일 dev container 안에서 작업하는 우리에겐 **이쪽이 "정상" 으로 보였다**. 그래서 Windows 측 팀원이 "all modified 가 떠요" 라고 했을 때 처음엔 재현이 안 돼서 진단에 시간이 걸렸다.
+
+**같은 코드, 같은 인덱스, 다른 OS — 두 화면 사이의 차이가 정확히 이 트러블슈팅의 본체다.**
+
 ### 핵심 한 줄
 
 > **"같은 git 리포를 두 OS 에서 다루기 시작한 순간"** 이 모든 노이즈의 출발점이다.
 >
 > dev container (Linux) 와 Windows native git 의 기본값 차이 — 줄 끝 자동 변환 + 권한 비트 — 가 표면화된 것이고, 이건 **누군가의 실수가 아니라 환경의 충돌**이다.
+
+### 사이드바 — 옆 팀의 "소문자 브랜치 컨벤션" 은 별개 이슈
+
+옆 팀에서 "CRLF/LF 이슈 때문에 GitHub 브랜치 이름을 모두 소문자 컨벤션으로 통일했다" 는 이야기가 있었다. **검증 결과: 기술적으로 우리 CRLF/filemode 이슈와는 별개**다.
+
+| 축 | 우리 이슈 (CRLF / filemode) | 소문자 브랜치 컨벤션 (case sensitivity) |
+|---|---|---|
+| 무엇이 다른가 | 파일 **내용**의 줄 끝 바이트 + 파일 **권한 비트** | git 레퍼런스 **이름**의 대소문자 |
+| 어디서 충돌하나 | autocrlf 자동 변환 / chmod 비트 | NTFS·HFS+ 등 **case-insensitive 파일시스템** |
+| 표면화 시점 | `git status` / `git diff` | `git checkout`, branch push, `.git/refs/heads/<name>` 충돌 |
+| 해결책 | `.gitattributes` + `core.filemode=false` | 브랜치 이름 소문자 통일 |
+
+소문자 브랜치 컨벤션의 진짜 이유는 **case-insensitive 파일시스템에서의 ref 충돌**이다. git 은 브랜치를 `.git/refs/heads/<branch-name>` 파일로 저장하는데, NTFS (Windows) 와 macOS HFS+ 는 기본적으로 대소문자를 구분 안 한다 → `feature/Login` 과 `feature/login` 이 같은 파일로 취급되어 충돌. 이걸 막으려고 소문자로 통일하는 것.
+
+→ **CRLF 와 같은 "OS 간 git 충돌" 패밀리에 속하긴 하지만, 메커니즘은 완전히 다르다.** 이 트러블슈팅 doc 의 fix (`.gitattributes` + `core.filemode`) 와는 무관하므로 별도 정책으로 다룬다. 옆 팀의 결정 자체는 옳다 (다른 이유로).
 
 ---
 
