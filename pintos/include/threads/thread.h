@@ -116,6 +116,9 @@ struct thread {
 	struct list_elem child_elem;        /* 부모의 children 리스트에 들어가는 노드 */
 	struct semaphore wait_sema;         /* 부모가 자식 종료 대기: 자식이 up */
 	struct semaphore exit_sema;         /* 자식이 부모의 회수 대기: 부모가 up */
+	struct semaphore fork_sema;         /* fork를 위한 세마포어 */
+	bool fork_success;                  /* 자식의 상태, thread_create()는 성공했는데 메모리 복사에서 실패여부 */
+
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

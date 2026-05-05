@@ -260,6 +260,21 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		}
 
 		/* 프로세스 관련 */
+		case SYS_FORK: {
+			const char *name = (const void *) f->R.rdi;  /* 자식 이름 */
+			tid_t tid = process_fork(name, f);          /* f가 곧 if_ */
+			sema_down(&thread_current()->fork_sema);
+			f->R.rax = tid;
+
+			break;
+		}
+
+		case SYS_WAIT: {
+			tid_t pid = (tid_t) f->R.rdi;
+			f->R.rax = process_wait(pid);
+			break;
+		}
+
 		case SYS_HALT:
 			/* 머신을 즉시 종료한다.
 			 * power_off()는 QEMU/Bochs에 shutdown 신호를 보내며 NO_RETURN이다. */
