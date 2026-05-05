@@ -6,18 +6,23 @@
 #include "threads/loader.h"
 #include "threads/init.h"
 #include "userprog/gdt.h"
-#include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/vaddr.h"
-#include "threads/mmu.h"
 #include "intrinsic.h"
+#include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/mmu.h"
+#include "threads/malloc.h"
 #include "threads/synch.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 static struct lock filesys_lock;
+struct fd_entry {
+	int fd;
+	struct file *file;
+	struct list_elem elem;
+};
 
 /* System call.
  *
@@ -31,6 +36,7 @@ static struct lock filesys_lock;
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
+#define FD_MAX 128
 
 void
 syscall_init (void) {
@@ -55,14 +61,24 @@ validate_user_addr (const void *uaddr) {
 	}
 }
 
-static void
-validate_user_string (const char *str) {
-	while (true) {
-		validate_user_addr (str);
-		if (*str == '\0')
-			return;
-		str++;
+static int
+add_file_to_fdt(struct file *file) {
+	struct thread *curr = thread_current();
+
+	if (curr->fd_idx >= FD_MAX)
+		return -1;
+
+	struct fd_entry *entry = malloc(sizeof *entry);
+	if (entry == NULL) {
+		return -1;
 	}
+
+	entry->fd = curr->fd_idx++;
+	entry->file = file;
+
+	list_push_back(&curr->fd_table, &entry->elem);
+
+	return entry->fd;
 }
 
 void
@@ -107,6 +123,25 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			lock_release (&filesys_lock);
 		
 			f->R.rax = success;
+			break;
+		}
+		case SYS_OPEN: {
+			char *filename = (char *)f->R.rdi;
+
+			validate_user_addr(filename);
+
+			lock_acquire (&filesys_lock);
+			struct file *file = filesys_open(filename);
+			if (file == NULL) {
+				f->R.rax = -1;
+			} else {
+				int fd = add_file_to_fdt(file);
+				if (fd == -1)
+					file_close(file);
+				f->R.rax = fd;
+			}
+			lock_release (&filesys_lock);
+
 			break;
 		}
 
