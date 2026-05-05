@@ -897,7 +897,244 @@ case SYS_WAIT: {
 
 ---
 
-## 8. 다음 단계로 미룬 것들
+## 8. 후속 — SYS_EXEC (`exec-missing` 통과까지의 시행착오 7회)
+
+FORK/WAIT 직후 진입한 마지막 P2 콜. 다른 콜과 달리 **테스트 한 개
+(`exec-missing`) 통과에 압도적으로 오래 걸렸고**, 그 과정에서 `load()` —
+`process_exec()` — `SYS_EXEC` — `initd()` 네 곳이 **동시에** 맞물려야
+한다는 걸 알게 됐다. 시행착오 전체를 순서대로 남긴다.
+
+### 8.1 문제 정의
+
+```
+exec("no-such-file")
+  → load() 가 실패해야 한다 (파일 없음)
+  → 그 결과로 현재 프로세스가 exit(-1) 로 종료되어야 한다
+```
+
+핵심 시맨틱: **exec 실패 = "현재 프로세스 교체 실패" = 호출자 자체가 죽음**.
+유저에게 -1 을 반환하는 `read()` / `write()` 와 시맨틱이 다르다.
+
+### 8.2 시행착오 연대기
+
+#### 시행착오 1 — `process_exec()` 실패 시 단순 `return -1`
+
+가장 먼저 시도한 안. load 실패하면 그냥 `return -1`.
+
+```c
+/* process_exec */
+if (!success) return -1;
+```
+
+**증상**: page fault.
+
+**원인**: `process_exec` 진입 시 이미 `process_cleanup()` 으로 **현재
+페이지 테이블을 destroy 한 상태**다. 이 상태에서 `return -1` 로 유저
+프로그램에 돌아가면 코드 페이지가 없어서 즉사.
+
+#### 시행착오 2 — `process_cleanup()` 을 `load()` 이후로 이동
+
+cleanup 시점을 늦춰서, load 가 성공한 다음에만 기존 pml4 를 정리하도록 변경.
+
+**증상**: page fault (이번엔 do_iret 직후).
+
+**원인**: `process_cleanup()` 이 **새로 load 한 pml4 까지 destroy** 해버린다.
+어차피 같은 thread 의 pml4 슬롯이라, "기존" 과 "새것" 을 cleanup 이 구분 못함.
+
+#### 시행착오 3 — `process_cleanup()` 완전 제거
+
+cleanup 호출을 통째로 빼버림. load 가 내부적으로 pml4 를 교체하니 별도
+cleanup 불필요한 게 맞다.
+
+**증상**: 일반 exec 는 통과하지만, **`exec-missing` 은 여전히 page fault**.
+
+**원인**: load 실패 시 **새 pml4 가 thread 에 남아있고**, 기존 유저
+프로그램의 페이지가 거기엔 없다. 즉, load 가 성공했든 실패했든
+`t->pml4` 가 새것을 가리키게 되어 있는 상태.
+
+#### 시행착오 4 — `load()` 에서 `old_pml4` 백업/복원
+
+```c
+uint64_t *old_pml4 = t->pml4;
+t->pml4 = pml4_create();
+if (t->pml4 == NULL)        /* ← 잘못된 NULL 체크 */
+    goto done;
+...
+done:
+    if (!success) {
+        t->pml4 = old_pml4;
+        pml4_activate(old_pml4);
+    }
+```
+
+**증상**: `initd` 첫 호출 시 즉시 `goto done` 으로 빠져 load 자체가
+무조건 실패.
+
+**원인**: NULL 체크를 `t->pml4` 로 했는데, **`initd` 단계에선 `old_pml4`
+가 NULL** 이라 `t->pml4 = pml4_create()` 직후 그 새 pml4 가 NULL 이 아니어도
+체크의 의미가 어긋난다 — 정확히는 코드 흐름상 새 pml4 의 NULL 여부를
+판별하는 의도였는데 변수 분리가 안 돼서 의도와 다른 값을 보고 있었다.
+
+#### 시행착오 5 — NULL 체크 변수 분리
+
+```c
+uint64_t *new_pml4 = pml4_create();
+if (new_pml4 == NULL)       /* ← 새 pml4 자체를 검사 */
+    goto done;
+t->pml4 = new_pml4;
+```
+
+**증상**: `load()` 자체는 통과. 그러나 `exec("no-such-file")` 실패 후
+`process_exec()` 이 `return -1` → `SYS_EXEC` 핸들러에서 `f->R.rax = -1`
+세팅 후 유저 프로그램 복귀 → 유저 프로그램이 `exit(0)` 으로 종료.
+
+**원인**: 테스트가 기대하는 건 `exit(-1)`. 시맨틱 불일치 — exec 실패는
+**유저에게 -1 반환** 이 아니라 **호출자 프로세스 자체를 -1 로 종료** 다.
+
+#### 시행착오 6 — `SYS_EXEC` 에서 `thread_exit()` 호출
+
+```c
+case SYS_EXEC: {
+    int r = process_exec(...);
+    thread_current()->exit_status = -1;
+    thread_exit();
+}
+```
+
+**증상**: `initd` 의 `PANIC("Fail to launch initd")` 발동, 커널 패닉.
+
+**원인**: `exec-missing` 테스트 자체를 부팅할 때 **initd 가
+`process_exec` 으로 사용자 프로그램을 띄운다**. 이 단계에서 실패하면
+테스트가 시작도 못 하는데, 우리 변경이 initd 의 기존 PANIC 을 그대로
+타격함.
+
+#### 시행착오 7 — `initd()` PANIC 을 `NOT_REACHED()` 로 교체
+
+PANIC 대신 NOT_REACHED 로 바꾸면 부드럽게 빠질 줄 알았음.
+
+**증상**: 같은 자리에서 `NOT_REACHED()` PANIC 발동.
+
+**원인**: `NOT_REACHED()` 는 매크로상 도달 시 패닉이 도지는 어서션이다
+("이 라인까지 오면 안 된다"). PANIC 을 NOT_REACHED 로 바꾼 건 **이름만
+바꾼 것이지 의미는 같다**. initd 단계의 실패는 **진짜로 비정상**이라
+panic 이 맞고, 우리가 잡아야 할 건 **테스트 본체에서의 exec 실패**다.
+
+### 8.3 최종 해결 — 4 곳 동시 수정
+
+7회 시도가 가르쳐 준 것: **load / process_exec / SYS_EXEC / initd 가 한
+사슬로 엮여 있어, 한 곳만 고치면 다른 곳에서 터진다**. 네 곳 동시 수정해야
+정확히 하나의 시맨틱으로 수렴한다.
+
+#### 1) `load()` — old_pml4 백업 + new_pml4 NULL 체크 + 실패 시 복원
+
+```c
+bool
+load (const char *file_name, struct intr_frame *if_) {
+    struct thread *t = thread_current();
+    uint64_t *old_pml4 = t->pml4;            /* 백업 */
+    uint64_t *new_pml4 = pml4_create();      /* 별도 변수에 받기 */
+    if (new_pml4 == NULL)                    /* ★ new_pml4 기준 NULL 체크 */
+        goto done;
+    t->pml4 = new_pml4;
+    process_activate(t);
+    /* ... ELF 파싱 / 세그먼트 적재 ... */
+
+done:
+    file_close(file);
+    if (!success) {
+        if (t->pml4 != old_pml4)
+            pml4_destroy(t->pml4);           /* 새 pml4 정리 */
+        t->pml4 = old_pml4;                  /* 원복 */
+        pml4_activate(old_pml4);
+    }
+    return success;
+}
+```
+
+#### 2) `process_exec()` — `process_cleanup()` 제거, 실패 시 `return -1`
+
+```c
+int
+process_exec (void *f_name) {
+    /* ★ 기존의 process_cleanup() 호출 삭제 — load 가 pml4 를 교체한다 */
+    /* ... 인자 파싱, load 호출 ... */
+    if (!success) {
+        palloc_free_page(file_name);
+        return -1;
+    }
+    do_iret(&_if);   /* 성공하면 여기서 영원히 안 돌아옴 */
+    NOT_REACHED();
+}
+```
+
+#### 3) `SYS_EXEC` — 실패 시 `exit(-1)`
+
+```c
+case SYS_EXEC: {
+    const char *filename = (const void *) f->R.rdi;
+    validate_user_addr(filename);
+
+    /* process_exec 는 palloc 페이지를 기대 — 유저 포인터를 그대로 넘기면 안 됨 */
+    char *fn_copy = palloc_get_page(PAL_ZERO);
+    strlcpy(fn_copy, filename, PGSIZE);
+
+    int result = process_exec(fn_copy);
+    /* 여기까지 왔으면 무조건 실패 (성공이면 do_iret 에서 안 돌아옴) */
+    thread_current()->exit_status = -1;
+    thread_exit();
+    NOT_REACHED();
+}
+```
+
+#### 4) `initd()` — PANIC 유지
+
+```c
+if (process_exec(f_name) < 0)
+    PANIC("Fail to launch initd\n");
+```
+
+initd 의 exec 실패는 진짜 부팅 실패이므로 panic 이 맞다.
+**`exec-missing` 은 initd 단계에선 성공하고, 그 위 사용자 프로그램 안에서
+`exec("no-such-file")` 이 실패하는 시나리오** — 두 단계의 exec 가
+구분되어야 한다.
+
+### 8.4 핵심 통찰
+
+1. **`process_exec` 가 성공하면 절대 돌아오지 않는다 (do_iret).**
+   따라서 호출자 (`SYS_EXEC`, `initd`) 의 "그 다음 코드" 는 **실패 경로
+   전용**이다. 이 사실을 못 받아들이면 SYS_EXEC 의 `thread_exit()` 가
+   불필요해 보인다.
+
+2. **exec 실패 = 호출자 프로세스 종료 = `exit(-1)`.**
+   `read`/`write` 처럼 "유저에게 -1 반환" 이 아니다. 시행착오 5 의
+   본질이 이 시맨틱 차이를 못 보던 것.
+
+3. **load 가 새 pml4 를 만들면서 기존 pml4 를 교체한다.**
+   따라서 실패 시 **원본으로 되돌릴 책임도 load 에 있다** —
+   `old_pml4` 백업·복원·activate 가 한 묶음.
+
+4. **NULL 체크 대상의 변수는 명시적으로 분리.**
+   `t->pml4 == NULL` 처럼 멤버 변수로 검사하면 initd 의 `old_pml4 == NULL`
+   상황과 의미가 섞인다. `new_pml4 = pml4_create()` 후 `new_pml4 == NULL`
+   로 검사하는 게 의도가 한 줄로 드러나는 코드.
+
+### 8.5 함정 15 — 네 곳 사이의 의존성을 한 번에 고려해야 한다
+
+기존 함정 1~14 는 **한 함수 안의 한 분기 / 한 자료구조** 수준이었다.
+EXEC 의 함정은 다르다 — **load 의 NULL 체크 변수**, **process_exec 의
+cleanup 시점**, **SYS_EXEC 의 실패 시 thread_exit**, **initd 의
+PANIC 유지** 가 한 체인이라, 한 개만 고치면 다음 시도에서 새 증상이
+튀어나온다 (시행착오 1→2→3 의 page fault → 4→5 의 load 실패 → 6→7
+의 PANIC).
+
+→ 이 함정에 대한 디버깅 전략: **한 시도 후 같은 자리가 깨끗해지면
+다음으로 넘어가지 말고, 다른 자리에서 새 증상이 안 나오는지를 같이 확인.**
+exec 처럼 "한 콜이 4개 함수에 걸쳐 책임을 나눠 가진" 케이스에선
+국소 수정이 항상 부분 해결로 끝난다.
+
+---
+
+## 9. 다음 단계로 미룬 것들
 
 - **REMOVE / SEEK / TELL** — `filesys_remove` / `file_seek` / `file_tell`
   한 줄 래퍼. §5.B의 fd_table 두 단계 가드 패턴 그대로 적용.
@@ -905,14 +1142,16 @@ case SYS_WAIT: {
 - **per-thread 락 / inode 단위 락** — 현재 굵은 락의 성능 이슈.
 - **buffer 검증의 페이지 경계 처리** — `validate_user_addr`은 한 바이트만
   검사. READ/WRITE의 `(buffer, size)` 전 구간을 페이지마다 재검증해야 함.
-- **EXEC** — `process_exec` 로 라우팅. fork 가 끝나서 마지막 P2 콜이 남음.
 - **`fork_success` 활용** — 현재는 멤버만 추가하고 실제 분기는 안 깔림.
   `__do_fork` 에서 success/fail 을 기록 → 부모가 그 값을 읽고 fork 반환값을
   `-1` 로 정정하는 패턴으로 확장 예정.
+- **EXEC 의 fn_copy 누수** — `process_exec` 성공 경로 (`do_iret` 으로
+  안 돌아옴) 에서 `palloc_free_page(fn_copy)` 가 불릴 자리가 없다.
+  현재는 그냥 누수 — 다음 단계에서 `process_exec` 안에서 free 하도록 정리.
 
 ---
 
-## 9. 한 줄 요약
+## 10. 한 줄 요약
 
 > 파일 시스템 콜 구현의 무게중심은 **`filesys_*` 한 줄**이 아니라
 > **그 한 줄을 부르기 전·후의 인프라**(유저 포인터 3단 검증 / 전역 락 /
@@ -930,3 +1169,10 @@ case SYS_WAIT: {
 > 에서 `sema_up` 이 한 번씩 보장되어야 한다. fork 의 함정 6개 (§7.A
 > 9~14) 는 결국 **단일 포인터 aux / 깊은 복사 / 페이지 테이블 복제 /
 > 신호 invariant** 네 가지 축에서 발생한다.
+>
+> EXEC (§8) 는 다시 한 번 무게중심을 옮긴다 — 이번엔 **함수 간 책임 분배**다.
+> `exec-missing` 테스트 하나를 위해 `load` / `process_exec` / `SYS_EXEC` /
+> `initd` 네 곳이 **동시에 한 시맨틱** ("실패하면 호출자가 exit(-1)") 을
+> 향해 정렬되어야 한다. 시행착오 7 회 (§8.2) 는 모두 "한 곳만 고치면
+> 다른 곳에서 터진다" 의 변주이고, 시리즈를 통틀어 **국소 수정의 한계**
+> 를 가장 명확히 보여 준 사건이다 (§8.5 함정 15).
