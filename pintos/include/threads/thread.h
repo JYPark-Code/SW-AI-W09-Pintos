@@ -104,6 +104,7 @@ struct thread {
 	/* fd 테이블 */
 	struct file *fd_table[128];
 	int fd_next;   /* 다음 할당할 fd 번호, 2로 초기화 */
+	bool wait_called; /* 부모가 wait()를 호출했는지 여부 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

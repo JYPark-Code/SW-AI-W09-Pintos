@@ -134,9 +134,8 @@ initd (void *f_name) {
 #endif
 
 	process_init ();
-
-	if (process_exec (f_name) < 0)
-		PANIC("Fail to launch initd\n");
+	if (process_exec(f_name) < 0)
+    	PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
 
@@ -219,6 +218,10 @@ __do_fork (void *aux) {
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
+	/* 자식을 부모의 children 리스트에 추가하는 코드 */
+	current->parent = parent;
+	list_push_back(&parent->children, &current->child_elem);
+
 	/* arg 메모리 해제 */
 	free(args);
 
@@ -287,9 +290,6 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
-	/* We first kill the current context */
-	process_cleanup ();
-
 	/* 인자 파싱: strtok_r은 file_name을 in-place 수정하므로
 	 * palloc_free_page 이전에 수행한다.
 	 * argv[0] = 프로그램 이름, argv[1..] = 인자들. */
@@ -301,12 +301,15 @@ process_exec (void *f_name) {
 	/* 스레드 이름을 프로그램 이름으로 갱신.
 	 * thread_create에는 cmdline 전체가 들어가 있어 16자 한계로
 	 * "args-single one"처럼 잘리고, process_exit의 종료 메시지가 깨진다. */
-	strlcpy (thread_current ()->name, argv[0],
-	         sizeof thread_current ()->name);
+
+	/* exec() 호출시 원 프로세스 이름이 나오길 기대 현재 child 프로세스로 덮어씌워짐 (주석 이유) */
+	// strlcpy (thread_current ()->name, argv[0],
+	//          sizeof thread_current ()->name);
 
 	/* load()에는 프로그램 이름(argv[0])만 넘긴다.
 	 * 나머지 인자는 argument_stack()에서 유저 스택에 직접 쓴다. */
 	success = load (argv[0], &_if);
+
 
 	if (!success) {
 		palloc_free_page (file_name);
@@ -341,7 +344,7 @@ process_exec (void *f_name) {
  *      struct thread 본체와 t->exit_status가 아직 살아있다 → 안전하게 회수.
  *   4) list_remove로 좀비 엔트리 제거.
  *   5) sema_up(&t->exit_sema): 자식이 마지막 do_schedule(DYING)으로 진입.
- *
+ * 
  * 동일 child_tid에 대해 두 번째 호출되면 list_remove 이후 검색 실패 → -1.
  * 자식이 아닌 tid나 잘못된 tid도 검색 실패 → -1.
  */
@@ -366,6 +369,7 @@ process_wait (tid_t child_tid) {
 	sema_down (&child->wait_sema);
 	exit_status = child->exit_status;
 	list_remove (&child->child_elem);
+	child->wait_called = true;
 	sema_up (&child->exit_sema);
 
 	return exit_status;
@@ -393,7 +397,8 @@ process_exit (void) {
 
 	if (is_user_process) {
 		sema_up (&curr->wait_sema);
-		sema_down (&curr->exit_sema);
+		if (curr->parent != NULL && curr->wait_called)   /* 부모가 있을 때만 대기 && 대기 상태 보낸 거 */
+			sema_down (&curr->exit_sema);
 	}
 }
 
@@ -507,10 +512,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	/* 기존 pml4 백업 */
+	uint64_t *old_pml4 = t->pml4;  
+
 	/* Allocate and activate page directory. */
-	t->pml4 = pml4_create ();
-	if (t->pml4 == NULL)
+	uint64_t *new_pml4 = pml4_create();
+	if (new_pml4 == NULL)
 		goto done;
+
+	t->pml4 = new_pml4;  /* 임시로 교체 */
 	process_activate (thread_current ());
 
 	/* Open executable file. */
@@ -599,8 +609,15 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
-	return success;
+	file_close(file);
+    if (!success) {
+        if (t->pml4 != old_pml4) {
+            pml4_destroy(t->pml4);
+        }
+        t->pml4 = old_pml4;       /* 원래 pml4로 복원 */
+        pml4_activate(old_pml4);  /* 원래 pml4 재활성화 */
+    }
+    return success;
 }
 
 

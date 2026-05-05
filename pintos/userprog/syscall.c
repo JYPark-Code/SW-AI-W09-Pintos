@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "devices/input.h"      /* input_getc() — SYS_READ stdin 분기에서 사용 */
+#include "threads/palloc.h" 	/* SYS_EXEC 에서 palloc_get_page() 인자로 넣을 떄 PAL_ZERO 필요*/
 
 /* 파일 시스템 락 선언 */
 struct lock filesys_lock;
@@ -260,6 +261,25 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		}
 
 		/* 프로세스 관련 */
+		case SYS_EXEC: {
+			/* 유저가 넘긴 파일명 포인터 검증 */
+			const char *filename = (const void *) f->R.rdi;
+			validate_user_addr(filename);
+
+			/* process_exec는 palloc으로 할당된 메모리를 기대하므로
+			* 유저 스택의 filename을 그대로 넘기면 안 됨
+			* 새 페이지에 복사해서 넘김 */
+			char *fn_copy = palloc_get_page(PAL_ZERO);
+			strlcpy(fn_copy, filename, PGSIZE);
+
+			/* 성공하면 돌아오지 않음 (do_iret으로 유저 모드 전환)
+			* 실패하면 -1 반환 */
+			int result = process_exec(fn_copy);
+			thread_current()->exit_status = -1;
+			thread_exit();
+			NOT_REACHED();
+		}
+
 		case SYS_FORK: {
 			const char *name = (const void *) f->R.rdi;  /* 자식 이름 */
 			tid_t tid = process_fork(name, f);          /* f가 곧 if_ */
