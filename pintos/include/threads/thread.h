@@ -109,6 +109,9 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 	int exit_status;
 
+	struct file *fd_table[128];
+	int next_fd;
+
 	struct thread *parent;
 	struct list children;
 	struct list_elem child_elem;
