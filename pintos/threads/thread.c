@@ -201,6 +201,9 @@ thread_create (const char *name, int priority,
 	tid = t->tid = allocate_tid ();
 
 #ifdef USERPROG
+	/* 부모-자식 관계 연결: 새로 만들어진 스레드는 자동으로
+	 * 호출 스레드의 children list에 등록된다. process_wait가
+	 * 이 list를 순회해서 대기할 자식을 찾는다. */
 	t->parent = thread_current ();
 	list_push_back (&thread_current ()->children, &t->child_elem);
 #endif
@@ -472,12 +475,17 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->wait_on_lock = NULL;           /* 기다리는 lock 없음 */
 	list_init(&t->donations);         /* donation 리스트 초기화 */
 #ifdef USERPROG
+	/* process_wait/exit 동기화 자료 초기화.
+	 * 모든 스레드(initial_thread 포함)가 children/sema를 갖도록 보장한다. */
 	list_init (&t->children);
 	list_init (&t->fd_table);
 	sema_init (&t->wait_sema, 0);
 	sema_init (&t->exit_sema, 0);
+	sema_init (&t->fork_sema, 0);
 	t->parent = NULL;
-	t->next_fd = 2;
+	t->fd_next = 2;  /* 0=stdin, 1=stdout 예약 */
+	t->fork_success = false;
+
 #endif
 	t->magic = THREAD_MAGIC;
 }

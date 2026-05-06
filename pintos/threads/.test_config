@@ -1,0 +1,40 @@
+# .test_config for Project 1: Threads
+# format: test_name | pre_args | post_args | prog_args | test_path
+#   test_name : 메뉴 표시용 테스트 이름
+#   pre_args  : 'pintos' 호출 시 -- 이전 옵션 (threads는 비움)
+#   post_args : 'pintos' 호출 시 -- 이후, 테스트 이름 이전 옵션 (run 포함)
+#   prog_args : 테스트 실행 인자 (보통 테스트 이름과 동일)
+#   test_path : .result 파일이 생성되는 경로 (build 기준 상대 경로)
+
+[threads/alarm]
+alarm-single       |  | -q run | alarm-single       | tests/threads
+alarm-multiple     |  | -q run | alarm-multiple     | tests/threads
+alarm-simultaneous |  | -q run | alarm-simultaneous | tests/threads
+alarm-priority     |  | -q run | alarm-priority     | tests/threads
+alarm-zero         |  | -q run | alarm-zero         | tests/threads
+alarm-negative     |  | -q run | alarm-negative     | tests/threads
+
+[threads/priority]
+priority-change           |  | -q run | priority-change           | tests/threads
+priority-donate-one       |  | -q run | priority-donate-one       | tests/threads
+priority-donate-multiple  |  | -q run | priority-donate-multiple  | tests/threads
+priority-donate-multiple2 |  | -q run | priority-donate-multiple2 | tests/threads
+priority-donate-nest      |  | -q run | priority-donate-nest      | tests/threads
+priority-donate-sema      |  | -q run | priority-donate-sema      | tests/threads
+priority-donate-lower     |  | -q run | priority-donate-lower     | tests/threads
+priority-fifo             |  | -q run | priority-fifo             | tests/threads
+priority-preempt          |  | -q run | priority-preempt          | tests/threads
+priority-sema             |  | -q run | priority-sema             | tests/threads
+priority-condvar          |  | -q run | priority-condvar          | tests/threads
+priority-donate-chain     |  | -q run | priority-donate-chain     | tests/threads
+
+[threads/mlfqs]
+mlfqs-load-1   |  | -q -mlfqs run | mlfqs-load-1   | tests/threads/mlfqs
+mlfqs-load-60  |  | -q -mlfqs run | mlfqs-load-60  | tests/threads/mlfqs
+mlfqs-load-avg |  | -q -mlfqs run | mlfqs-load-avg | tests/threads/mlfqs
+mlfqs-recent-1 |  | -q -mlfqs run | mlfqs-recent-1 | tests/threads/mlfqs
+mlfqs-fair-2   |  | -q -mlfqs run | mlfqs-fair-2   | tests/threads/mlfqs
+mlfqs-fair-20  |  | -q -mlfqs run | mlfqs-fair-20  | tests/threads/mlfqs
+mlfqs-nice-2   |  | -q -mlfqs run | mlfqs-nice-2   | tests/threads/mlfqs
+mlfqs-nice-10  |  | -q -mlfqs run | mlfqs-nice-10  | tests/threads/mlfqs
+mlfqs-block    |  | -q -mlfqs run | mlfqs-block    | tests/threads/mlfqs

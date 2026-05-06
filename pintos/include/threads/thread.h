@@ -103,21 +103,25 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;             /* ready_list, sleep_list용 */
+	/* fd 테이블 */
+	struct file *fd_table[128];
+	int fd_next;   /* 다음 할당할 fd 번호, 2로 초기화 */
+	bool wait_called; /* 부모가 wait()를 호출했는지 여부 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
-	int exit_status;
+	int exit_status;                    /* SYS_EXIT로 전달받은 종료 코드 */
 
-	struct file *fd_table[128];
-	int next_fd;
+	/* 부모-자식 동기화 (process_wait 정식 구현용) */
+	struct thread *parent;              /* 나를 만든 스레드 (없으면 NULL) */
+	struct list children;               /* 내가 만든 자식 스레드 리스트 */
+	struct list_elem child_elem;        /* 부모의 children 리스트에 들어가는 노드 */
+	struct semaphore wait_sema;         /* 부모가 자식 종료 대기: 자식이 up */
+	struct semaphore exit_sema;         /* 자식이 부모의 회수 대기: 부모가 up */
+	struct semaphore fork_sema;         /* fork를 위한 세마포어 */
+	bool fork_success;                  /* 자식의 상태, thread_create()는 성공했는데 메모리 복사에서 실패여부 */
 
-	struct thread *parent;
-	struct list children;
-	struct list_elem child_elem;
-	struct semaphore wait_sema;
-	struct semaphore exit_sema;
-	struct file *fd_table[FD_MAX];
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
