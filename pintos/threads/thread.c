@@ -204,6 +204,7 @@ thread_create (const char *name, int priority,
 	/* 부모-자식 관계 연결: 새로 만들어진 스레드는 자동으로
 	 * 호출 스레드의 children list에 등록된다. process_wait가
 	 * 이 list를 순회해서 대기할 자식을 찾는다. */
+
 	t->parent = thread_current ();
 	list_push_back (&thread_current ()->children, &t->child_elem);
 #endif

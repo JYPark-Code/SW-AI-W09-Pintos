@@ -30,7 +30,11 @@ static void __do_fork (void *);
 
 #define ARGV_MAX 64     /* 인자 개수 상한 (args-many 테스트 기준 22개로 충분) */
 
-/* __do_fork()에서는 parent 스레드도 필요하고 parent_if도 필요해서 구조체를 묶기 */
+/* __do_fork()로 부모 정보를 전달하기 위한 묶음 구조체.
+ * thread_create()의 aux는 void* 한 개만 받을 수 있는데,
+ * fork에서는 (1) 부모 스레드 포인터(children 리스트 등록용)와
+ * (2) 부모의 intr_frame(레지스터 컨텍스트 복사용) 두 가지가 모두 필요하다.
+ * 따라서 두 포인터를 한 구조체로 묶어 aux에 단일 포인터로 전달한다. */
 struct fork_args {
     struct thread *parent;
     struct intr_frame *parent_if;
@@ -134,29 +138,51 @@ initd (void *f_name) {
 #endif
 
 	process_init ();
+	thread_current()->parent = NULL;  /* initd는 부모가 없음 */
 	if (process_exec(f_name) < 0)
     	PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
 
-/* Clones the current process as `name`. Returns the new process's thread id, or
- * TID_ERROR if the thread cannot be created. */
+/* 현재 프로세스를 복제해 `name` 이름의 자식 스레드를 만든다.
+ * 인자: name=자식 이름, if_=부모의 인터럽트 프레임(syscall 시점 레지스터)
+ * 반환: 자식 tid, 실패 시 TID_ERROR
+ *
+ * 주의:
+ *   - fork_args를 malloc(힙)으로 할당하는 이유: process_fork는 호출 직후 리턴해
+ *     자신의 스택 프레임이 사라진다. 만약 args를 스택(지역 변수)에 두면
+ *     자식 스레드가 __do_fork에서 그 메모리를 읽기 시도할 때 이미 invalid.
+ *     힙에 두면 자식이 free할 때까지 안전하게 살아있다.
+ *   - thread_create의 aux는 단일 void*이므로 parent와 parent_if를 묶기 위해
+ *     fork_args 구조체가 필요하다. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
-	/* __do_fork를 위해서 새로 구조체를 넘기는 부분 */
+	/* 자식 스레드 시작 시점에도 살아있어야 하므로 힙에 할당 */
 	struct fork_args *args = malloc(sizeof(struct fork_args));
 	args->parent = thread_current();
 	args->parent_if = if_;
 
-	/* Clone current thread to new thread.*/
+	/* 자식 스레드 생성 — 시작 함수는 __do_fork, 인자는 args.
+	 * 자식이 __do_fork 안에서 args를 free하므로 여기서는 free하지 않는다. */
 	return thread_create (name,
 			PRI_DEFAULT, __do_fork, args);
 }
 
 #ifndef VM
-/* Duplicate the parent's address space by passing this function to the
- * pml4_for_each. This is only for the project 2. */
+/* pml4_for_each의 콜백: 부모의 한 페이지(va)를 자식의 페이지 테이블로 복제.
+ * 인자: pte=부모의 페이지 테이블 엔트리, va=가상 주소, aux=부모 thread*
+ * 반환: 성공 true, 실패 false (false면 pml4_for_each가 즉시 중단)
+ *
+ * 핵심 흐름:
+ *   1) 커널 영역(va)이면 복제 불필요 → 즉시 true.
+ *      커널 페이지는 모든 프로세스가 같은 매핑을 공유하므로 자식의 새 pml4를
+ *      만들 때 자동으로 들어와 있다. 따로 복사하면 이중 매핑/권한 충돌 발생.
+ *   2) PAL_USER | PAL_ZERO로 새 유저 페이지 할당 — USER 풀에서 잡고 0 초기화.
+ *      0 초기화는 잔재 데이터 노출을 막기 위한 안전장치(어차피 memcpy로 덮음).
+ *   3) memcpy로 부모 페이지 내용을 그대로 복사 — Project 2는 eager copy.
+ *   4) is_writable(pte)로 부모 페이지의 W비트를 읽어 자식에도 동일 권한 부여.
+ *      읽기 전용 코드 세그먼트가 자식에서 쓰기 가능해지면 보호가 깨진다. */
 static bool
 duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	struct thread *current = thread_current ();
@@ -165,30 +191,26 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	void *newpage;
 	bool writable;
 
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	/* 1. 커널 페이지는 자식의 pml4에 자동 매핑되므로 스킵 */
 	if (is_kernel_vaddr(va))
     	return true;
 
-	/* 2. Resolve VA from the parent's page map level 4. */
+	/* 2. 부모의 va에서 실제 커널 가상 주소(매핑된 프레임) 획득 */
 	parent_page = pml4_get_page (parent->pml4, va);
 
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
+	/* 3. 자식용 새 페이지 할당 (USER 풀, 0 초기화) */
 	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
 	if (newpage == NULL)
 		return false;
 
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
+	/* 4. 부모 페이지 내용 복사 + W권한 그대로 승계 */
 	memcpy(newpage, parent_page, PGSIZE);
 	writable = is_writable(pte);
 
 
-	/* 5. Add new page to child's page table at address VA with WRITABLE
-	 *    permission. */
+	/* 5. 자식의 pml4에 va → newpage 매핑 추가 */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
-		/* 6. TODO: if fail to insert page, do error handling. */
+		/* 6. 매핑 실패 시 — 할당했던 페이지 반납 후 실패 통보 */
 		if (!pml4_set_page(current->pml4, va, newpage, writable)) {
 			palloc_free_page(newpage);
 			return false;
@@ -199,34 +221,62 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 }
 #endif
 
-/* A thread function that copies parent's execution context.
- * Hint) parent->tf does not hold the userland context of the process.
- *       That is, you are required to pass second argument of process_fork to
- *       this function. */
+/* fork된 자식 스레드의 시작 함수: 부모의 실행 컨텍스트/메모리/fd를 복제한다.
+ * 인자: aux = process_fork에서 malloc한 fork_args 포인터
+ *
+ * 함수 끝에서 do_iret으로 유저 모드 진입 → 부모의 syscall 직후 명령어로 점프.
+ *
+ * 동기화 핵심:
+ *   - 부모는 SYS_FORK에서 sema_down(fork_sema)로 블록 중.
+ *   - 자식은 메모리/fd 복제를 모두 끝낸 뒤 sema_up(fork_sema)로 부모를 깨운다.
+ *     이 순서를 어기면 (예: pml4 복사 도중 깨우면) 부모가 먼저 진행해 race 발생.
+ *
+ * 함정:
+ *   - free(args)는 memcpy로 parent_if 내용을 if_ 로컬에 복사한 직후에 해야 한다.
+ *     너무 빨리 free하면 parent_if dangling, 너무 늦게 free하면 메모리 누수.
+ *   - children 리스트 등록은 부모의 pml4 복사 전에 마쳐야 한다 — 그래야 부모가
+ *     깨어나서 wait를 호출했을 때 자식을 찾을 수 있다.
+ *   - if_.R.rax = 0은 do_iret 직전에 세팅 — 자식의 fork() 반환값 0을 만든다. */
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
 	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	/* aux 캐스팅 */
+	/* aux 캐스팅 — process_fork에서 만든 묶음 구조체 풀기 */
 	struct fork_args *args = (struct fork_args *) aux;
 	struct thread *parent = args->parent;
 	struct intr_frame *parent_if = args->parent_if;
 
 	bool succ = true;
 
-	/* 1. Read the cpu context to local stack. */
+	/* 1. 부모 인터럽트 프레임을 자식의 로컬 if_로 복사.
+	 * 이 복사 후에야 args 포인터를 free해도 안전. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
 
-	/* 자식을 부모의 children 리스트에 추가하는 코드 */
+	/* 부모-자식 관계 등록.
+	 *
+	 * 주의: thread_create()(thread.c)가 이미 새 스레드를
+	 *   t->parent = thread_current ();
+	 *   list_push_back (&thread_current ()->children, &t->child_elem);
+	 * 로 부모의 children 리스트에 등록한다. 따라서 여기서 다시
+	 * list_push_back을 호출하면 같은 child_elem이 이중 등록되어
+	 * 리스트 prev/next 포인터가 자기 자신을 가리키도록 깨진다.
+	 *
+	 * 그 결과 wait-twice 같은 케이스에서:
+	 *   - 첫 번째 wait는 정상 동작 (sema_up→sema_down 한 사이클).
+	 *   - list_remove도 elem.prev/next가 모두 elem 자신이라 무력화 →
+	 *     리스트에서 child가 사라지지 않는다.
+	 *   - 두 번째 wait는 child를 또 찾아 sema_down(wait_sema)로
+	 *     영원히 블록 → TIMEOUT.
+	 *
+	 * thread_create의 등록만으로 충분하므로 list_push_back은 호출하지 않는다.
+	 * parent 대입은 thread_create와 동일 값이라 redundant지만 명시성을 위해 유지. */
 	current->parent = parent;
-	list_push_back(&parent->children, &current->child_elem);
 
-	/* arg 메모리 해제 */
+	/* parent_if 내용은 이미 if_에 복사됐고 parent 포인터도 캐싱됨 → free 안전 */
 	free(args);
 
 
-	/* 2. Duplicate PT */
+	/* 2. 자식 전용 페이지 테이블 생성 + 활성화 */
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
 		goto error;
@@ -237,41 +287,57 @@ __do_fork (void *aux) {
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
+	/* pml4_for_each + duplicate_pte로 부모의 모든 페이지를 자식에 복사.
+	 * 단순 pml4 포인터 공유가 아닌 deep copy여야 fork 의미를 만족한다. */
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
 		goto error;
 #endif
 
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
-
-	/* 부모의 fd_table을 자식에게 복사 */
+	/* 부모의 fd_table을 자식에 복사.
+	 * 주의: 단순 포인터 복사로 끝내면 부모/자식이 같은 file* 객체를 공유해
+	 *       offset/ref count가 꼬인다. file_duplicate로 새 file 객체를
+	 *       만들어 inode만 공유하고 file pos는 독립시켜야 한다. */
 	for (int i = 2; i < 128; i++) {
 		if (parent->fd_table[i] != NULL) {
 			current->fd_table[i] = file_duplicate(parent->fd_table[i]);
-			
+
 		}
 	}
 
+	/* 부모의 다음 발급 fd 번호도 복사 — 자식이 새 파일을 열 때
+	 * 부모와 같은 시점에서 이어서 발급하기 위함. */
 	current->fd_next = parent->fd_next;
+
+	/* 모든 복제(메모리 + fd_table + fd_next) 완료 후에 부모를 깨운다.
+	 * 이 시점 이전에 sema_up하면 부모가 먼저 실행돼 race 발생. */
 	sema_up(&parent->fork_sema);
+
+	/* 자식의 fork() 반환값은 0 — do_iret 시 rax 레지스터로 들어간다. */
 	if_.R.rax = 0;
-	
+
 	process_init ();
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
 error:
+	/* 실패 시에도 부모를 깨워야 영원히 블록되지 않는다. */
 	sema_up(&parent->fork_sema);
 	thread_exit ();
 	if_.R.rax = 0;
 }
 
-/* Switch the current execution context to the f_name.
- * Returns -1 on fail. */
+/* 현재 스레드의 유저 컨텍스트를 f_name이 가리키는 새 실행 파일로 교체한다.
+ * 인자: f_name = palloc된 페이지 (cmdline 전체, 공백으로 인자 구분)
+ * 반환: 실패 시 -1, 성공 시 do_iret으로 진입해 절대 돌아오지 않음
+ *
+ * 주의:
+ *   - process_cleanup() 호출이 사라진 이유: 새로 추가된 load() 내부에서
+ *     pml4_create + 임시 활성화로 새 주소 공간을 직접 만들고, 실패 시 원래
+ *     pml4로 복원하는 책임을 진다. 따라서 여기서 미리 cleanup하면 exec 실패 시
+ *     "원래 프로세스로 복귀할 수 없게" 되어 버린다.
+ *   - load() 실패 시 process_cleanup 없이 -1만 반환 — 원래 유저 프로세스의
+ *     주소 공간을 그대로 유지해서 SYS_EXEC 호출자가 계속 살아있도록. */
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
@@ -290,19 +356,21 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
-	/* 인자 파싱: strtok_r은 file_name을 in-place 수정하므로
-	 * palloc_free_page 이전에 수행한다.
+	/* 인자 파싱: strtok_r은 file_name을 in-place로 수정(공백을 \0으로)하므로
+	 * 반드시 palloc_free_page(file_name) 이전, 즉 페이지가 살아있는 동안
+	 * 파싱과 argument_stack 호출을 모두 끝내야 한다.
 	 * argv[0] = 프로그램 이름, argv[1..] = 인자들. */
 	for (token = strtok_r (file_name, " ", &save_ptr);
 	     token != NULL && argc < ARGV_MAX;
 	     token = strtok_r (NULL, " ", &save_ptr))
 		argv[argc++] = token;
 
-	/* 스레드 이름을 프로그램 이름으로 갱신.
-	 * thread_create에는 cmdline 전체가 들어가 있어 16자 한계로
-	 * "args-single one"처럼 잘리고, process_exit의 종료 메시지가 깨진다. */
-
-	/* exec() 호출시 원 프로세스 이름이 나오길 기대 현재 child 프로세스로 덮어씌워짐 (주석 이유) */
+	/* 스레드 이름 갱신 코드를 비활성화한 이유:
+	 *   exec("child")는 "현재 프로세스의 이미지를 child로 교체"하는 것이지,
+	 *   "현재 스레드 이름을 child로 바꾸는" 게 아니다. 부모 프로세스가 exec로
+	 *   자식 이미지를 로드해도 process_exit의 종료 메시지에는 원래 프로세스
+	 *   이름이 찍혀야 한다. 이 strlcpy를 살리면 exec-once 같은 테스트에서
+	 *   종료 메시지의 프로세스 이름이 바뀌어 fail. */
 	// strlcpy (thread_current ()->name, argv[0],
 	//          sizeof thread_current ()->name);
 
@@ -312,6 +380,9 @@ process_exec (void *f_name) {
 
 
 	if (!success) {
+		/* load() 실패 — pml4 복원은 load() 내부 done: 레이블이 처리.
+		 * 여기서는 cmdline 페이지만 반납하고 -1로 SYS_EXEC에 복귀.
+		 * process_cleanup을 부르면 원래 프로세스 주소공간이 박살난다. */
 		palloc_free_page (file_name);
 		return -1;
 	}
@@ -321,6 +392,7 @@ process_exec (void *f_name) {
 	argument_stack (argv, argc, &_if);
 	palloc_free_page (file_name);
 
+	// thread_current()->parent = NULL;
 	do_iret (&_if);
 	NOT_REACHED ();
 }
@@ -355,6 +427,9 @@ process_wait (tid_t child_tid) {
 	struct list_elem *e;
 	int exit_status;
 
+	/* children 리스트를 선형 탐색해 child_tid에 해당하는 자식 찾기.
+	 * 이 리스트는 __do_fork에서 list_push_back으로 등록된 직계 자식들.
+	 * 자식이 아니거나 이미 wait된(list_remove된) tid는 검색 실패 → -1. */
 	for (e = list_begin (&cur->children); e != list_end (&cur->children);
 	     e = list_next (e)) {
 		struct thread *t = list_entry (e, struct thread, child_elem);
@@ -366,10 +441,20 @@ process_wait (tid_t child_tid) {
 	if (child == NULL)
 		return -1;
 
+	/* 자식이 process_exit에서 sema_up(wait_sema)로 깨워줄 때까지 블록 */
 	sema_down (&child->wait_sema);
+
+	/* 자식은 exit_sema에서 BLOCKED 상태로 살아있으므로 안전하게 회수 가능 */
 	exit_status = child->exit_status;
+
+	/* 좀비 엔트리 제거 — 같은 tid로 두 번째 wait 시 NULL 반환 보장 */
 	list_remove (&child->child_elem);
+
+	/* "부모가 wait를 호출했다"는 플래그 — 자식이 exit_sema에서 깨어나도
+	 * 안전한지 판단하는 기준 (process_exit 참고). */
 	child->wait_called = true;
+
+	/* 자식에게 "이제 정리해도 됨" 신호 — 자식은 do_schedule(DYING)으로 진입 */
 	sema_up (&child->exit_sema);
 
 	return exit_status;
@@ -388,6 +473,9 @@ process_wait (tid_t child_tid) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+
+	/* pml4가 NULL이면 커널 스레드 — 종료 메시지/세마포어 처리 모두 스킵.
+	 * 유저 프로세스만 wait/exit 동기화 흐름에 참여한다. */
 	bool is_user_process = (curr->pml4 != NULL);
 
 	if (is_user_process)
@@ -396,9 +484,30 @@ process_exit (void) {
 	process_cleanup ();
 
 	if (is_user_process) {
+		
+		/* 부모가 wait 안 한 자식들을 풀어줌 */
+		struct list_elem *e;
+		for (e = list_begin(&curr->children);
+			e != list_end(&curr->children);
+			e = list_next(e)) {
+			struct thread *child = list_entry(e, struct thread, child_elem);
+			sema_up(&child->exit_sema);
+		}
+
+		/* 1) 부모를 깨운다 — 부모가 process_wait에서 sema_down(wait_sema)
+		 *    중이면 여기서 깨어나 exit_status를 회수. */
 		sema_up (&curr->wait_sema);
-		if (curr->parent != NULL && curr->wait_called)   /* 부모가 있을 때만 대기 && 대기 상태 보낸 거 */
-			sema_down (&curr->exit_sema);
+
+		/* 2) 부모가 wait를 호출한 경우에만 exit_sema에서 블록.
+		 *    조건이 두 개인 이유:
+		 *    - parent != NULL: 고아 프로세스(부모가 먼저 죽음)는 대기할
+		 *      대상이 없으므로 즉시 정리해야 한다. 안 그러면 영원히 BLOCKED.
+		 *    - wait_called: 부모가 살아있어도 wait를 호출하지 않았다면
+		 *      누구도 sema_up(exit_sema)를 호출해주지 않아 영원히 블록.
+		 *    두 조건이 모두 참일 때만 부모의 exit_status 회수가 끝나길 기다린다. */
+		// if (curr->parent != NULL){
+		sema_down (&curr->exit_sema); /* 무조건 대기 */
+		// }
 	}
 }
 
@@ -499,10 +608,20 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes,
 		bool writable);
 
-/* Loads an ELF executable from FILE_NAME into the current thread.
- * Stores the executable's entry point into *RIP
- * and its initial stack pointer into *RSP.
- * Returns true if successful, false otherwise. */
+/* ELF 실행 파일을 현재 스레드의 주소 공간에 로드한다.
+ * 인자: file_name=프로그램 경로, if_=유저 진입 시 사용할 인터럽트 프레임
+ * 반환: 성공 true, 실패 false
+ *
+ * exec 안전성 핵심 (이 구조가 process_exec의 -1 반환을 가능하게 한다):
+ *   - 진입 시 t->pml4(원래 주소공간)를 old_pml4에 백업.
+ *   - new_pml4를 만들어 임시로 활성화한 뒤 ELF를 로드.
+ *   - 어느 단계에서든 실패하면 done: 레이블에서 new_pml4를 파괴하고
+ *     old_pml4를 복원한다 → exec 호출자의 원래 프로세스가 살아남는다.
+ *
+ * 함정:
+ *   - new_pml4로 NULL 체크하는 이유: t->pml4로 체크하면 initd 첫 호출
+ *     시점에는 old_pml4가 NULL이므로 정상 케이스에서도 즉시 실패한다.
+ *     "방금 만들려고 시도한 페이지 테이블"이 NULL인지를 봐야 함. */
 static bool
 load (const char *file_name, struct intr_frame *if_) {
 	struct thread *t = thread_current ();
@@ -512,15 +631,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
-	/* 기존 pml4 백업 */
-	uint64_t *old_pml4 = t->pml4;  
+	/* 기존 pml4 백업 — 실패 시 복원해 exec 실패 안전성 보장 */
+	uint64_t *old_pml4 = t->pml4;
 
-	/* Allocate and activate page directory. */
+	/* 새 페이지 디렉토리 생성. NULL이면 즉시 done(원래 pml4 유지). */
 	uint64_t *new_pml4 = pml4_create();
 	if (new_pml4 == NULL)
 		goto done;
 
-	t->pml4 = new_pml4;  /* 임시로 교체 */
+	t->pml4 = new_pml4;  /* 임시로 교체 — 이후 ELF 세그먼트가 여기로 매핑됨 */
 	process_activate (thread_current ());
 
 	/* Open executable file. */
@@ -608,10 +727,13 @@ load (const char *file_name, struct intr_frame *if_) {
 	success = true;
 
 done:
-	/* We arrive here whether the load is successful or not. */
+	/* 성공/실패 어느 경우든 도달.
+	 * 실패 분기: new_pml4를 파괴하고 old_pml4를 복원해야 SYS_EXEC가 -1을
+	 * 받고 원래 프로세스에서 계속 실행할 수 있다. */
 	file_close(file);
     if (!success) {
         if (t->pml4 != old_pml4) {
+            /* 새로 만들었던 페이지 테이블이 활성화돼 있으면 파괴 */
             pml4_destroy(t->pml4);
         }
         t->pml4 = old_pml4;       /* 원래 pml4로 복원 */
