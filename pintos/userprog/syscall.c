@@ -1,3 +1,4 @@
+#include "filesys/file.h"
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -181,6 +182,36 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 			break;
 		}
+
+		case SYS_OPEN: {
+			const char *file = (const char *) f->R.rdi;
+		
+			validate_user_string (file);
+		
+			lock_acquire (&filesys_lock);
+			struct file *opened_file = filesys_open (file);
+			lock_release (&filesys_lock);
+		
+			if (opened_file == NULL) {
+				f->R.rax = -1;
+				break;
+			}
+		
+			struct thread *cur = thread_current ();
+			int fd = cur->next_fd;
+		
+			if (fd >= 128) {
+				file_close (opened_file);
+				f->R.rax = -1;
+				break;
+			}
+		
+			cur->fd_table[fd] = opened_file;
+			cur->next_fd++;
+		
+			f->R.rax = fd;
+			break;
+		}		
 
 		default:
 			printf("unhandled syscall: %llu\n",

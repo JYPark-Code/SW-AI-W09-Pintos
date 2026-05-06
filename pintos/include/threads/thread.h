@@ -10,7 +10,7 @@
 #include "vm/vm.h"
 #endif
 
-
+struct file;
 /* States in a thread's life cycle. */
 enum thread_status {
 	THREAD_RUNNING,     /* Running thread. */
@@ -106,6 +106,9 @@ struct thread {
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
 	int exit_status;
+
+	struct file *fd_table[128];
+	int next_fd;
 
 	struct thread *parent;
 	struct list children;
