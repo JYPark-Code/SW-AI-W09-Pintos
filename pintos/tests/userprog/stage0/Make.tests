@@ -1,0 +1,14 @@
+# -*- makefile -*-
+
+tests/userprog/stage0_TESTS = $(addprefix tests/userprog/stage0/,	\
+write-fd1 wait-blocks)
+
+tests/userprog/stage0_PROGS = $(tests/userprog/stage0_TESTS)
+
+tests/userprog/stage0/write-fd1_SRC    = tests/userprog/stage0/write-fd1.c
+tests/userprog/stage0/wait-blocks_SRC  = tests/userprog/stage0/wait-blocks.c
+
+# stage 0 한정: process_wait이 영구 블록되어 kernel은 timeout으로만 종료된다.
+# 짧게 끊어주기 위해 TIMEOUT을 10초로 단축. (기본 60초)
+tests/userprog/stage0/write-fd1.output:   TIMEOUT = 10
+tests/userprog/stage0/wait-blocks.output: TIMEOUT = 10

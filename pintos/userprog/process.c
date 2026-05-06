@@ -28,37 +28,71 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
-#define ARGV_MAX 64
+#define ARGV_MAX 64     /* 인자 개수 상한 (args-many 테스트 기준 22개로 충분) */
 
+/* __do_fork()에서는 parent 스레드도 필요하고 parent_if도 필요해서 구조체를 묶기 */
+struct fork_args {
+    struct thread *parent;
+    struct intr_frame *parent_if;
+};
+
+/* 유저 스택에 argv 문자열과 포인터 배열을 세팅한다.
+ *
+ * 스택 레이아웃 (낮은 주소 방향으로 성장):
+ *   [argv[0] 문자열] … [argv[argc-1] 문자열]
+ *   [8-byte 패딩 (word-align)]
+ *   [NULL sentinel  (8 bytes)]
+ *   [argv[argc-1] 포인터] … [argv[0] 포인터]  ← rsi 여기 (argv[] 배열 시작)
+ *   [fake return address = 0  (8 bytes)]        ← rsp 여기
+ *
+ * rdi = argc, rsi = argv[] 배열의 시작 주소를 intr_frame에 직접 기록한다.
+ * rsi를 (rsp+8)로 계산하지 않고 명시적으로 저장하는 이유:
+ *   do_iret 이후 %rsi 레지스터가 곧바로 main(argc, argv)로 전달되므로
+ *   스택 상의 정확한 포인터 위치를 가리켜야 한다. */
 static void
 argument_stack (char **argv, int argc, struct intr_frame *_if) {
 	uintptr_t arg_addr[ARGV_MAX];
 	uint8_t *rsp = (uint8_t *) _if->rsp;
 	int i;
 
+	/* 1. 문자열 데이터를 스택에 복사 (argv[argc-1] → argv[0] 순서로 push).
+	 *    역순으로 push하면 argv[0]가 가장 낮은 주소에 위치해
+	 *    디버깅 시 hex-dump가 읽기 쉽다. */
 	for (i = argc - 1; i >= 0; i--) {
-		size_t len = strlen (argv[i]) + 1;
+		size_t len = strlen (argv[i]) + 1;  /* null terminator 포함 */
 		rsp -= len;
 		memcpy (rsp, argv[i], len);
-		arg_addr[i] = (uintptr_t) rsp;
+		arg_addr[i] = (uintptr_t) rsp;     /* 나중에 포인터로 재사용 */
 	}
 
+	/* 2. word-align: ABI는 rsp가 16-byte 정렬된 상태로 call을 요구한다.
+	 *    포인터 push 전에 8-byte 단위로 맞춰두면 NULL sentinel + 짝수 개
+	 *    포인터가 늘 16-byte 정렬을 만족시킨다. */
 	rsp = (uint8_t *) ((uintptr_t) rsp & ~(uintptr_t) 7);
 
+	/* 3. NULL sentinel: argv[argc] = 0 (C 표준 요구사항) */
 	rsp -= sizeof (uintptr_t);
 	*(uintptr_t *) rsp = 0;
 
+	/* 4. argv 포인터 배열을 역순으로 push (argv[argc-1] → argv[0]).
+	 *    push 후 rsp == &argv[0] on stack. */
 	for (i = argc - 1; i >= 0; i--) {
 		rsp -= sizeof (uintptr_t);
 		*(uintptr_t *) rsp = arg_addr[i];
 	}
 
+	/* rsi = argv[] 배열 시작 주소를 지금 기록한다.
+	 * fake return address push 이후에는 rsp가 한 칸 더 내려가므로
+	 * (rsp+8)과 달리 여기서 캡처해야 argv[0] 포인터를 정확히 가리킨다. */
 	_if->R.rsi = (uint64_t) rsp;
 	_if->R.rdi = (uint64_t) argc;
 
+	/* 5. fake return address: main()의 반환 주소 자리를 0으로 채운다.
+	 *    실제로 main이 return하면 SYS_EXIT를 거치므로 값은 의미 없다. */
 	rsp -= sizeof (uintptr_t);
 	*(uintptr_t *) rsp = 0;
 
+	/* 6. 최종 rsp 반영 */
 	_if->rsp = (uintptr_t) rsp;
 }
 
@@ -100,9 +134,9 @@ initd (void *f_name) {
 #endif
 
 	process_init ();
-
-	if (process_exec (f_name) < 0)
-		PANIC("Fail to launch initd\n");
+	thread_current()->parent = NULL;  /* initd는 부모가 없음 */
+	if (process_exec(f_name) < 0)
+    	PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
 
@@ -110,9 +144,15 @@ initd (void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+
+	/* __do_fork를 위해서 새로 구조체를 넘기는 부분 */
+	struct fork_args *args = malloc(sizeof(struct fork_args));
+	args->parent = thread_current();
+	args->parent_if = if_;
+
 	/* Clone current thread to new thread.*/
 	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+			PRI_DEFAULT, __do_fork, args);
 }
 
 #ifndef VM
@@ -127,21 +167,34 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if (is_kernel_vaddr(va))
+    	return true;
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	if (newpage == NULL)
+		return false;
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy(newpage, parent_page, PGSIZE);
+	writable = is_writable(pte);
+
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		if (!pml4_set_page(current->pml4, va, newpage, writable)) {
+			palloc_free_page(newpage);
+			return false;
+		}
+
 	}
 	return true;
 }
@@ -154,14 +207,24 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork (void *aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	/* aux 캐스팅 */
+	struct fork_args *args = (struct fork_args *) aux;
+	struct thread *parent = args->parent;
+	struct intr_frame *parent_if = args->parent_if;
+
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+
+	/* 자식을 부모의 children 리스트에 추가하는 코드 (thread_create에서 이미 등록되었으므로 중복 호출 금지) */
+	current->parent = parent;
+
+	/* arg 메모리 해제 */
+	free(args);
+
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -184,13 +247,27 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
+	/* 부모의 fd_table을 자식에게 복사 */
+	for (int i = 2; i < 128; i++) {
+		if (parent->fd_table[i] != NULL) {
+			current->fd_table[i] = file_duplicate(parent->fd_table[i]);
+			
+		}
+	}
+
+	current->fd_next = parent->fd_next;
+	sema_up(&parent->fork_sema);
+	if_.R.rax = 0;
+	
 	process_init ();
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
 error:
+	sema_up(&parent->fork_sema);
 	thread_exit ();
+	if_.R.rax = 0;
 }
 
 /* Switch the current execution context to the f_name.
@@ -200,6 +277,7 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	/* strtok_r 용 변수: file_name 페이지가 살아있는 동안 파싱 완료해야 한다. */
 	char *argv[ARGV_MAX];
 	int   argc = 0;
 	char *token, *save_ptr;
@@ -212,24 +290,34 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
-	/* We first kill the current context */
-	process_cleanup ();
-
+	/* 인자 파싱: strtok_r은 file_name을 in-place 수정하므로
+	 * palloc_free_page 이전에 수행한다.
+	 * argv[0] = 프로그램 이름, argv[1..] = 인자들. */
 	for (token = strtok_r (file_name, " ", &save_ptr);
 	     token != NULL && argc < ARGV_MAX;
 	     token = strtok_r (NULL, " ", &save_ptr))
 		argv[argc++] = token;
 
-	strlcpy (thread_current ()->name, argv[0],
-	         sizeof thread_current ()->name);
+	/* 스레드 이름을 프로그램 이름으로 갱신.
+	 * thread_create에는 cmdline 전체가 들어가 있어 16자 한계로
+	 * "args-single one"처럼 잘리고, process_exit의 종료 메시지가 깨진다. */
 
+	/* exec() 호출시 원 프로세스 이름이 나오길 기대 현재 child 프로세스로 덮어씌워짐 (주석 이유) */
+	// strlcpy (thread_current ()->name, argv[0],
+	//          sizeof thread_current ()->name);
+
+	/* load()에는 프로그램 이름(argv[0])만 넘긴다.
+	 * 나머지 인자는 argument_stack()에서 유저 스택에 직접 쓴다. */
 	success = load (argv[0], &_if);
+
 
 	if (!success) {
 		palloc_free_page (file_name);
 		return -1;
 	}
 
+	/* argument_stack()이 argv[i] 포인터(file_name 페이지 내부)를 읽으므로
+	 * 스택 세팅이 완전히 끝난 뒤에 해제한다. */
 	argument_stack (argv, argc, &_if);
 	palloc_free_page (file_name);
 
@@ -243,7 +331,23 @@ process_exec (void *f_name) {
  * exception), returns -1.  If TID is invalid or if it was not a
  * child of the calling process, or if process_wait() has already
  * been successfully called for the given TID, returns -1
- * immediately, without waiting. */
+ * immediately, without waiting.
+ *
+ * This function will be implemented in problem 2-2.  For now, it
+ * does nothing. */
+/* 자식 프로세스 종료 대기 후 exit_status를 회수해 반환한다.
+ *
+ * 동기화 흐름 (자식 thread t가 종료될 때):
+ *   1) 부모는 children list에서 child_tid를 찾는다 (없으면 -1).
+ *   2) sema_down(&t->wait_sema): 자식이 process_exit에서 sema_up할 때까지 블록.
+ *   3) 깨어난 시점에 자식은 자신의 exit_sema에서 BLOCKED 상태이므로
+ *      struct thread 본체와 t->exit_status가 아직 살아있다 → 안전하게 회수.
+ *   4) list_remove로 좀비 엔트리 제거.
+ *   5) sema_up(&t->exit_sema): 자식이 마지막 do_schedule(DYING)으로 진입.
+ * 
+ * 동일 child_tid에 대해 두 번째 호출되면 list_remove 이후 검색 실패 → -1.
+ * 자식이 아닌 tid나 잘못된 tid도 검색 실패 → -1.
+ */
 int
 process_wait (tid_t child_tid) {
 	struct thread *cur = thread_current ();
@@ -265,12 +369,22 @@ process_wait (tid_t child_tid) {
 	sema_down (&child->wait_sema);
 	exit_status = child->exit_status;
 	list_remove (&child->child_elem);
+	child->wait_called = true;
 	sema_up (&child->exit_sema);
 
 	return exit_status;
 }
 
-/* Exit the process. This function is called by thread_exit (). */
+/* Exit the process. This function is called by thread_exit ().
+ *
+ * 동기화 흐름:
+ *   1) 종료 메시지 출력 (유저 프로세스만; 커널 스레드는 pml4=NULL).
+ *   2) process_cleanup으로 pml4 회수.
+ *   3) sema_up(wait_sema): 부모의 process_wait를 깨운다.
+ *   4) sema_down(exit_sema): 부모가 exit_status를 회수할 때까지 블록.
+ *      이 동안 thread 구조체가 살아있으므로 부모가 안전하게 읽을 수 있다.
+ *      부모가 sema_up하면 thread_exit로 복귀해 do_schedule(DYING) 진입.
+ */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
@@ -282,8 +396,21 @@ process_exit (void) {
 	process_cleanup ();
 
 	if (is_user_process) {
+
+		/* 부모가 wait 안 한 자식들을 풀어줌 */
+		struct list_elem *e;
+		for (e = list_begin(&curr->children);
+			e != list_end(&curr->children);
+			e = list_next(e)) {
+			struct thread *child = list_entry(e, struct thread, child_elem);
+			sema_up(&child->exit_sema);
+		}
+
 		sema_up (&curr->wait_sema);
-		sema_down (&curr->exit_sema);
+
+		// if (curr->parent != NULL){
+		sema_down (&curr->exit_sema); /* 무조건 대기 */
+		// }
 	}
 }
 
@@ -397,10 +524,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	/* 기존 pml4 백업 */
+	uint64_t *old_pml4 = t->pml4;  
+
 	/* Allocate and activate page directory. */
-	t->pml4 = pml4_create ();
-	if (t->pml4 == NULL)
+	uint64_t *new_pml4 = pml4_create();
+	if (new_pml4 == NULL)
 		goto done;
+
+	t->pml4 = new_pml4;  /* 임시로 교체 */
 	process_activate (thread_current ());
 
 	/* Open executable file. */
@@ -489,8 +621,15 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
-	return success;
+	file_close(file);
+    if (!success) {
+        if (t->pml4 != old_pml4) {
+            pml4_destroy(t->pml4);
+        }
+        t->pml4 = old_pml4;       /* 원래 pml4로 복원 */
+        pml4_activate(old_pml4);  /* 원래 pml4 재활성화 */
+    }
+    return success;
 }
 
 
