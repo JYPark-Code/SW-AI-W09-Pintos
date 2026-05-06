@@ -213,7 +213,55 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		}		
 
+		case SYS_OPEN: {
+			const char *file = (const char *) f->R.rdi;
+			struct thread *cur = thread_current ();
+			int fd = -1;
+
+			validate_user_string (file);
+
+			for (int i = 2; i < FD_MAX; i++) {
+				if (cur->fd_table[i] == NULL) {
+					fd = i;
+					break;
+				}
+			}
+
+			if (fd == -1) {
+				f->R.rax = (uint64_t) -1;
+				break;
+			}
+
+			cur->fd_table[fd] = filesys_open (file);
+			if (cur->fd_table[fd] == NULL) {
+				f->R.rax = (uint64_t) -1;
+				break;
+			}
+
+			f->R.rax = fd;
+			break;
+		}
+		case SYS_CLOSE: {
+			int fd = (int) f->R.rdi;
+			struct thread *cur = thread_current ();
+
+			if (fd < 0 || fd >= FD_MAX) {
+				break;
+			}
+
+			if (cur->fd_table[fd] == NULL) {
+				break;
+			}
+
+			struct file *file = cur->fd_table[fd];
+			cur->fd_table[fd] = NULL;
+			file_close (file);
+
+			break;
+		}
+
 		default:
+
 			printf("unhandled syscall: %llu\n",
 			       (unsigned long long) sysno);
 			thread_exit();

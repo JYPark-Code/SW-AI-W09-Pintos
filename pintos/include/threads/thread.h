@@ -11,6 +11,7 @@
 #endif
 
 struct file;
+
 /* States in a thread's life cycle. */
 enum thread_status {
 	THREAD_RUNNING,     /* Running thread. */
@@ -23,6 +24,7 @@ enum thread_status {
    You can redefine this to whatever type you like. */
 typedef int tid_t;
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
+#define FD_MAX 128
 
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
@@ -115,9 +117,7 @@ struct thread {
 	struct list_elem child_elem;
 	struct semaphore wait_sema;
 	struct semaphore exit_sema;
-
-	struct list fd_table;
-	int fd_idx;
+	struct file *fd_table[FD_MAX];
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
